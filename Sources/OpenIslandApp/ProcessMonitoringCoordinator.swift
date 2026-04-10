@@ -106,6 +106,14 @@ final class ProcessMonitoringCoordinator {
             local = SessionState(sessions: mergedSessions)
         }
 
+        let mergedWithGemini = mergedWithSyntheticGeminiSessions(
+            existingSessions: local.sessions,
+            activeProcesses: activeProcesses
+        )
+        if mergedWithGemini != local.sessions {
+            local = SessionState(sessions: mergedWithGemini)
+        }
+
         // Adopt process TTYs inline on local copy.
         adoptProcessTTYsForClaudeSessions(activeProcesses: activeProcesses, sessions: &local)
 
@@ -315,7 +323,7 @@ final class ProcessMonitoringCoordinator {
             }
         }
 
-        // Gemini sessions: two-pass — sessionID first, then cwd fallback.
+        // Gemini sessions: three-pass — sessionID, then cwd, then TTY fallback.
         let geminiProcesses = activeProcesses.filter { $0.tool == .geminiCLI }
         var claimedGeminiIndices = Set<Int>()
 
@@ -331,9 +339,10 @@ final class ProcessMonitoringCoordinator {
             }
         }
 
-        // Pass 2: working directory fallback (only unclaimed sessions and processes)
+        // Pass 2: working directory fallback
         for session in sessions where session.tool == .geminiCLI && !session.isDemoSession && !aliveIDs.contains(session.id) {
             let sessionCWD = normalizedPathForMatching(session.jumpTarget?.workingDirectory)
+            guard sessionCWD != nil else { continue }
             if let idx = geminiProcesses.indices.first(where: { i in
                 guard !claimedGeminiIndices.contains(i) else { return false }
                 let proc = geminiProcesses[i]
@@ -344,9 +353,21 @@ final class ProcessMonitoringCoordinator {
             }
         }
 
+        // Pass 3: TTY fallback (for synthetic sessions that carry terminal TTY)
+        for session in sessions where session.tool == .geminiCLI && !session.isDemoSession && !aliveIDs.contains(session.id) {
+            let sessionTTY = session.jumpTarget?.terminalTTY
+            guard sessionTTY != nil else { continue }
+            if let idx = geminiProcesses.indices.first(where: { i in
+                guard !claimedGeminiIndices.contains(i) else { return false }
+                return geminiProcesses[i].terminalTTY == sessionTTY
+            }) {
+                claimedGeminiIndices.insert(idx)
+                aliveIDs.insert(session.id)
+            }
+        }
+
         // Synthetic sessions: always alive if the process exists.
-        let syntheticSessions = sessions.filter { isSyntheticClaudeSession($0) }
-        for session in syntheticSessions {
+        for session in sessions where isSyntheticClaudeSession(session) || isSyntheticGeminiSession(session) {
             aliveIDs.insert(session.id)
         }
 
@@ -421,6 +442,86 @@ final class ProcessMonitoringCoordinator {
         )
         session.isProcessAlive = true
         return session
+    }
+
+    // MARK: - Synthetic Gemini sessions
+
+    private static let syntheticGeminiPrefix = "synthetic-gemini:"
+
+    func mergedWithSyntheticGeminiSessions(
+        existingSessions: [AgentSession],
+        activeProcesses: [ActiveProcessSnapshot],
+        now: Date = .now
+    ) -> [AgentSession] {
+        let activeGeminiProcesses = activeProcesses.filter { $0.tool == .geminiCLI }
+
+        // Remove stale synthetic Gemini sessions — they'll be recreated below
+        // from the current process list.  This avoids identity-key drift when
+        // terminal-app detection changes between cycles.
+        let baseSessions = existingSessions.filter { !isSyntheticGeminiSession($0) }
+
+        // Find processes already represented by a hook-created session.
+        let trackedGeminiSessions = baseSessions.filter { $0.tool == .geminiCLI }
+        var representedTTYs: Set<String> = []
+        var representedCWDs: Set<String> = []
+        for session in trackedGeminiSessions {
+            if let tty = session.jumpTarget?.terminalTTY { representedTTYs.insert(tty) }
+            if let cwd = normalizedPathForMatching(session.jumpTarget?.workingDirectory) { representedCWDs.insert(cwd) }
+        }
+
+        // Deduplicate by TTY — Gemini spawns parent+child node processes
+        // with the same TTY/cwd, which would produce duplicate session IDs.
+        var seenTTYs: Set<String> = []
+        let uniqueGeminiProcesses = activeGeminiProcesses
+            .filter { proc in
+                // Skip processes whose TTY is already represented by a hook-created session.
+                if let tty = proc.terminalTTY, representedTTYs.contains(tty) { return false }
+                return true
+            }
+            .filter { proc in
+                // Dedup parent+child by TTY
+                guard let tty = proc.terminalTTY else { return true }
+                return seenTTYs.insert(tty).inserted
+            }
+
+        let syntheticSessions = uniqueGeminiProcesses
+            .map { syntheticGeminiSession(for: $0, now: now) }
+
+        return baseSessions + syntheticSessions
+    }
+
+    private func syntheticGeminiSession(
+        for process: ActiveProcessSnapshot,
+        now: Date
+    ) -> AgentSession {
+        let workingDirectory = process.workingDirectory
+        let workspaceName = workingDirectory.map { WorkspaceNameResolver.workspaceName(for: $0) } ?? "Workspace"
+        let terminalApp = supportedTerminalApp(for: process.terminalApp) ?? "Unknown"
+        let identity = processIdentityKey(process)
+
+        var session = AgentSession(
+            id: "\(Self.syntheticGeminiPrefix)\(identity)",
+            title: "Gemini CLI · \(workspaceName)",
+            tool: .geminiCLI,
+            origin: .live,
+            attachmentState: .attached,
+            phase: .running,
+            summary: "Gemini CLI session detected from \(terminalApp).",
+            updatedAt: now,
+            jumpTarget: JumpTarget(
+                terminalApp: terminalApp,
+                workspaceName: workspaceName,
+                paneTitle: "Gemini \(workspaceName)",
+                workingDirectory: workingDirectory,
+                terminalTTY: process.terminalTTY
+            )
+        )
+        session.isProcessAlive = true
+        return session
+    }
+
+    func isSyntheticGeminiSession(_ session: AgentSession) -> Bool {
+        session.tool == .geminiCLI && session.id.hasPrefix(Self.syntheticGeminiPrefix)
     }
 
     func isSyntheticClaudeSession(_ session: AgentSession) -> Bool {
@@ -660,24 +761,28 @@ final class ProcessMonitoringCoordinator {
             return nil
         }
 
+        // Include tool type so different agents sharing a terminal or
+        // workspace don't suppress each other in the session list.
+        let tool = session.tool.rawValue
+
         if let terminalSessionID = jumpTarget.terminalSessionID?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !terminalSessionID.isEmpty {
-            return "\(terminalApp.lowercased()):session:\(terminalSessionID.lowercased())"
+            return "\(tool):\(terminalApp.lowercased()):session:\(terminalSessionID.lowercased())"
         }
 
         if let terminalTTY = normalizedTTYForMatching(jumpTarget.terminalTTY) {
-            return "\(terminalApp.lowercased()):tty:\(terminalTTY.lowercased())"
+            return "\(tool):\(terminalApp.lowercased()):tty:\(terminalTTY.lowercased())"
         }
 
         let paneTitle = jumpTarget.paneTitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if let workingDirectory = normalizedPathForMatching(jumpTarget.workingDirectory),
            !paneTitle.isEmpty {
-            return "\(terminalApp.lowercased()):cwd:\(workingDirectory):title:\(paneTitle)"
+            return "\(tool):\(terminalApp.lowercased()):cwd:\(workingDirectory):title:\(paneTitle)"
         }
 
         if let workingDirectory = normalizedPathForMatching(jumpTarget.workingDirectory) {
-            return "\(terminalApp.lowercased()):cwd:\(workingDirectory)"
+            return "\(tool):\(terminalApp.lowercased()):cwd:\(workingDirectory)"
         }
 
         return nil

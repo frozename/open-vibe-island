@@ -604,9 +604,9 @@ struct ActiveAgentProcessDiscovery {
     private func isGeminiProcess(command: String) -> Bool {
         let lowered = command.lowercased()
 
-        // Direct binary names
-        if let firstToken = lowered.split(separator: " ").first {
-            if firstToken == "gemini" || firstToken.hasSuffix("/gemini") {
+        // Check all tokens — Gemini is often launched as "node /opt/homebrew/bin/gemini ..."
+        for token in lowered.split(separator: " ") {
+            if token == "gemini" || token.hasSuffix("/gemini") {
                 return true
             }
         }
