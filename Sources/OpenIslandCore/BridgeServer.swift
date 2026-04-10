@@ -2524,6 +2524,7 @@ public final class BridgeServer: @unchecked Sendable {
                         sessionID: payload.sessionID,
                         summary: "Gemini session ended.",
                         timestamp: .now,
+                        isInterrupt: true,
                         isSessionEnd: true
                     )
                 )
