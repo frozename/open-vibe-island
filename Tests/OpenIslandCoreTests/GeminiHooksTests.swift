@@ -21,7 +21,7 @@ struct GeminiHooksTests {
         decoder.dateDecodingStrategy = .iso8601
         
         let payload = try decoder.decode(GeminiHookPayload.self, from: json)
-        #expect(payload.sessionId == "session-123")
+        #expect(payload.sessionID == "session-123")
         #expect(payload.hookEventName == .beforeTool)
         #expect(payload.cwd == "/Users/test/project")
         #expect(payload.toolName == "ls")
@@ -114,8 +114,7 @@ struct GeminiHooksTests {
         let hooks = object["hooks"] as! [String: Any]
         let beforeToolGroups = hooks["BeforeTool"] as! [[String: Any]]
         
-        // Should have merged into the existing group or added a new one with same matcher
-        // Based on my implementation it adds a NEW group with matcher "*"
+        // The installer adds a new managed group with matcher "*", preserving the existing user group
         #expect(beforeToolGroups.count == 2)
         
         // Now test uninstallation preserves the user hook
@@ -153,7 +152,7 @@ struct GeminiHooksTests {
     @Test
     func geminiPayloadConvenienceProperties() {
         let payload = GeminiHookPayload(
-            sessionId: "session-test",
+            sessionID: "session-test",
             transcriptPath: "/tmp/transcript.jsonl",
             cwd: "/Users/test/my-project",
             hookEventName: .beforeTool,
@@ -167,5 +166,41 @@ struct GeminiHooksTests {
         #expect(payload.sessionID == "session-test")
         #expect(payload.permissionRequestTitle == "Allow grep")
         #expect(payload.permissionRequestSummary == "Gemini wants to call grep.")
+    }
+
+    @Test
+    func bridgeRoundTripDoesNotDoubleQuoteJSON() throws {
+        let originalJSON = """
+        {
+            "session_id": "session-roundtrip",
+            "transcript_path": "/tmp/transcript.jsonl",
+            "cwd": "/Users/test/project",
+            "hook_event_name": "BeforeTool",
+            "timestamp": "2026-04-10T04:00:00Z",
+            "tool_name": "grep",
+            "tool_input": { "pattern": "error" }
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        
+        let initialPayload = try decoder.decode(GeminiHookPayload.self, from: originalJSON)
+        #expect(initialPayload.toolInput == "{\"pattern\":\"error\"}")
+
+        let command = BridgeCommand.processGeminiHook(initialPayload)
+        
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let encodedCommand = try encoder.encode(command)
+        
+        let decodedCommand = try decoder.decode(BridgeCommand.self, from: encodedCommand)
+        
+        guard case let .processGeminiHook(roundTripPayload) = decodedCommand else {
+            Issue.record("Expected processGeminiHook command")
+            return
+        }
+        
+        #expect(roundTripPayload.toolInput == "{\"pattern\":\"error\"}")
     }
 }

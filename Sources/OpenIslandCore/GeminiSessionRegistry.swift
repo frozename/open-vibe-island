@@ -48,7 +48,7 @@ public struct GeminiTrackedSessionRecord: Equatable, Codable, Sendable {
     }
 
     public var session: AgentSession {
-        AgentSession(
+        var sess = AgentSession(
             id: sessionID,
             title: title,
             tool: .geminiCLI,
@@ -60,6 +60,8 @@ public struct GeminiTrackedSessionRecord: Equatable, Codable, Sendable {
             jumpTarget: jumpTarget,
             geminiMetadata: geminiMetadata
         )
+        sess.isHookManaged = origin == .live
+        return sess
     }
 
     public var restorableSession: AgentSession {

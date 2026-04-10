@@ -2575,7 +2575,14 @@ public final class BridgeServer: @unchecked Sendable {
             return
         }
 
-        let jumpTarget = payload.defaultJumpTarget
+        var jumpTarget = payload.defaultJumpTarget
+
+        if jumpTarget.terminalSessionID == nil,
+           let existingID = existingSession.jumpTarget?.terminalSessionID,
+           !existingID.isEmpty {
+            jumpTarget.terminalSessionID = existingID
+        }
+
         guard existingSession.jumpTarget != jumpTarget else {
             return
         }
@@ -2598,10 +2605,10 @@ public final class BridgeServer: @unchecked Sendable {
 
         let existing = existingSession.geminiMetadata
         let update = payload.defaultGeminiMetadata
-        let clearToolState = payload.hookEventName == .sessionEnd
+        let clearToolState = payload.hookEventName == .sessionEnd || payload.hookEventName == .afterTool
 
         let merged = GeminiSessionMetadata(
-            sessionId: update.sessionId ?? existing?.sessionId,
+            sessionID: update.sessionID ?? existing?.sessionID,
             initialUserPrompt: existing?.initialUserPrompt ?? update.initialUserPrompt ?? update.lastUserPrompt,
             lastUserPrompt: update.lastUserPrompt ?? existing?.lastUserPrompt,
             lastAssistantMessage: update.lastAssistantMessage ?? existing?.lastAssistantMessage,

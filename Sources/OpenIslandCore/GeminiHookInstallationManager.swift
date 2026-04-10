@@ -46,7 +46,7 @@ public final class GeminiHookInstallationManager: @unchecked Sendable {
         let resolvedBinaryURL = resolvedHooksBinaryURL(explicitURL: hooksBinaryURL)
 
         let settingsData = try? Data(contentsOf: settingsURL)
-        let manifest = try loadManifest(at: manifestURL)
+        let manifest = loadManifest(at: manifestURL)
         let managedCommand = manifest?.hookCommand ?? resolvedBinaryURL.map { GeminiHookInstaller.hookCommand(for: $0.path) }
         
         let mutation = try GeminiHookInstaller.uninstallSettingsJSON(
@@ -104,7 +104,7 @@ public final class GeminiHookInstallationManager: @unchecked Sendable {
     public func uninstall() throws -> GeminiHookInstallationStatus {
         let settingsURL = geminiDirectory.appendingPathComponent("settings.json")
         let manifestURL = geminiDirectory.appendingPathComponent(GeminiHookInstallerManifest.fileName)
-        let manifest = try loadManifest(at: manifestURL)
+        let manifest = loadManifest(at: manifestURL)
         let existingSettings = try? Data(contentsOf: settingsURL)
         
         let mutation = try GeminiHookInstaller.uninstallSettingsJSON(
@@ -127,13 +127,13 @@ public final class GeminiHookInstallationManager: @unchecked Sendable {
         return try status()
     }
 
-    private func loadManifest(at url: URL) throws -> GeminiHookInstallerManifest? {
-        guard fileManager.fileExists(atPath: url.path) else { return nil }
+    private func loadManifest(at url: URL) -> GeminiHookInstallerManifest? {
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url) else { return nil }
 
-        let data = try Data(contentsOf: url)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(GeminiHookInstallerManifest.self, from: data)
+        return try? decoder.decode(GeminiHookInstallerManifest.self, from: data)
     }
 
     private func resolvedHooksBinaryURL(explicitURL: URL?) -> URL? {

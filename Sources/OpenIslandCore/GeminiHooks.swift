@@ -12,7 +12,7 @@ public enum GeminiHookEventName: String, Codable, Sendable {
 }
 
 public struct GeminiHookPayload: Equatable, Codable, Sendable {
-    public var sessionId: String
+    public var sessionID: String
     public var transcriptPath: String
     public var cwd: String
     public var hookEventName: GeminiHookEventName
@@ -32,7 +32,7 @@ public struct GeminiHookPayload: Equatable, Codable, Sendable {
     public var mcpContext: String? // Simplified for now as String
     public var notificationType: String?
     public var message: String?
-    public var details: JSONValue?
+    public var details: GeminiHookJSONValue?
 
     // Runtime context (populated via enrichment)
     public var terminalApp: String?
@@ -41,7 +41,7 @@ public struct GeminiHookPayload: Equatable, Codable, Sendable {
     public var paneTitle: String?
 
     private enum CodingKeys: String, CodingKey {
-        case sessionId = "session_id"
+        case sessionID = "session_id"
         case transcriptPath = "transcript_path"
         case cwd
         case hookEventName = "hook_event_name"
@@ -67,7 +67,7 @@ public struct GeminiHookPayload: Equatable, Codable, Sendable {
     }
 
     public init(
-        sessionId: String,
+        sessionID: String,
         transcriptPath: String,
         cwd: String,
         hookEventName: GeminiHookEventName,
@@ -85,13 +85,13 @@ public struct GeminiHookPayload: Equatable, Codable, Sendable {
         mcpContext: String? = nil,
         notificationType: String? = nil,
         message: String? = nil,
-        details: JSONValue? = nil,
+        details: GeminiHookJSONValue? = nil,
         terminalApp: String? = nil,
         terminalSessionID: String? = nil,
         terminalTTY: String? = nil,
         paneTitle: String? = nil
     ) {
-        self.sessionId = sessionId
+        self.sessionID = sessionID
         self.transcriptPath = transcriptPath
         self.cwd = cwd
         self.hookEventName = hookEventName
@@ -118,7 +118,7 @@ public struct GeminiHookPayload: Equatable, Codable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.sessionId = try container.decode(String.self, forKey: .sessionId)
+        self.sessionID = try container.decode(String.self, forKey: .sessionID)
         self.transcriptPath = try container.decode(String.self, forKey: .transcriptPath)
         self.cwd = try container.decode(String.self, forKey: .cwd)
         self.hookEventName = try container.decode(GeminiHookEventName.self, forKey: .hookEventName)
@@ -133,15 +133,20 @@ public struct GeminiHookPayload: Equatable, Codable, Sendable {
         self.stopHookActive = try? container.decodeIfPresent(Bool.self, forKey: .stopHookActive)
         self.toolName = try? container.decodeIfPresent(String.self, forKey: .toolName)
         
-        // tool_input arrives as a JSON object, but we want it as a String preview
-        if let toolInputRaw = try? container.decodeIfPresent(JSONValue.self, forKey: .toolInput) {
-            self.toolInput = toolInputRaw.toString()
+        // tool_input arrives as a JSON object, but we want it as a String preview.
+        // It might arrive as a String if it went through the bridge.
+        if let str = try? container.decodeIfPresent(String.self, forKey: .toolInput) {
+            self.toolInput = str
+        } else if let json = try? container.decodeIfPresent(GeminiHookJSONValue.self, forKey: .toolInput) {
+            self.toolInput = json.toString()
         } else {
             self.toolInput = nil
         }
 
-        if let toolResponseRaw = try? container.decodeIfPresent(JSONValue.self, forKey: .toolResponse) {
-            self.toolResponse = toolResponseRaw.toString()
+        if let str = try? container.decodeIfPresent(String.self, forKey: .toolResponse) {
+            self.toolResponse = str
+        } else if let json = try? container.decodeIfPresent(GeminiHookJSONValue.self, forKey: .toolResponse) {
+            self.toolResponse = json.toString()
         } else {
             self.toolResponse = nil
         }
@@ -149,15 +154,17 @@ public struct GeminiHookPayload: Equatable, Codable, Sendable {
         self.originalRequestName = try? container.decodeIfPresent(String.self, forKey: .originalRequestName)
         self.trigger = try? container.decodeIfPresent(String.self, forKey: .trigger)
         
-        if let mcpContextRaw = try? container.decodeIfPresent(JSONValue.self, forKey: .mcpContext) {
-            self.mcpContext = mcpContextRaw.toString()
+        if let str = try? container.decodeIfPresent(String.self, forKey: .mcpContext) {
+            self.mcpContext = str
+        } else if let json = try? container.decodeIfPresent(GeminiHookJSONValue.self, forKey: .mcpContext) {
+            self.mcpContext = json.toString()
         } else {
             self.mcpContext = nil
         }
 
         self.notificationType = try? container.decodeIfPresent(String.self, forKey: .notificationType)
         self.message = try? container.decodeIfPresent(String.self, forKey: .message)
-        self.details = try? container.decodeIfPresent(JSONValue.self, forKey: .details)
+        self.details = try? container.decodeIfPresent(GeminiHookJSONValue.self, forKey: .details)
 
         self.terminalApp = try? container.decodeIfPresent(String.self, forKey: .terminalApp)
         self.terminalSessionID = try? container.decodeIfPresent(String.self, forKey: .terminalSessionID)
@@ -195,7 +202,7 @@ public struct GeminiHookDirective: Equatable, Codable, Sendable {
 }
 
 public struct GeminiSessionMetadata: Equatable, Codable, Sendable {
-    public var sessionId: String?
+    public var sessionID: String?
     public var initialUserPrompt: String?
     public var lastUserPrompt: String?
     public var lastAssistantMessage: String?
@@ -204,7 +211,7 @@ public struct GeminiSessionMetadata: Equatable, Codable, Sendable {
     public var transcriptPath: String?
 
     public init(
-        sessionId: String? = nil,
+        sessionID: String? = nil,
         initialUserPrompt: String? = nil,
         lastUserPrompt: String? = nil,
         lastAssistantMessage: String? = nil,
@@ -212,7 +219,7 @@ public struct GeminiSessionMetadata: Equatable, Codable, Sendable {
         currentToolInputPreview: String? = nil,
         transcriptPath: String? = nil
     ) {
-        self.sessionId = sessionId
+        self.sessionID = sessionID
         self.initialUserPrompt = initialUserPrompt
         self.lastUserPrompt = lastUserPrompt
         self.lastAssistantMessage = lastAssistantMessage
@@ -222,7 +229,7 @@ public struct GeminiSessionMetadata: Equatable, Codable, Sendable {
     }
 
     public var isEmpty: Bool {
-        sessionId == nil
+        sessionID == nil
             && initialUserPrompt == nil
             && lastUserPrompt == nil
             && lastAssistantMessage == nil
@@ -235,10 +242,6 @@ public struct GeminiSessionMetadata: Equatable, Codable, Sendable {
 // MARK: - Payload Convenience Extensions
 
 public extension GeminiHookPayload {
-    var sessionID: String {
-        sessionId
-    }
-
     var workspaceRoot: String {
         cwd
     }
@@ -255,7 +258,7 @@ public extension GeminiHookPayload {
         JumpTarget(
             terminalApp: terminalApp ?? "Terminal",
             workspaceName: workspaceName,
-            paneTitle: paneTitle ?? "Gemini \(sessionId.prefix(8))",
+            paneTitle: paneTitle ?? "Gemini \(sessionID.prefix(8))",
             workingDirectory: workspaceRoot,
             terminalSessionID: terminalSessionID,
             terminalTTY: terminalTTY
@@ -264,7 +267,7 @@ public extension GeminiHookPayload {
 
     var defaultGeminiMetadata: GeminiSessionMetadata {
         GeminiSessionMetadata(
-            sessionId: sessionId,
+            sessionID: sessionID,
             initialUserPrompt: promptPreview,
             lastUserPrompt: promptPreview,
             lastAssistantMessage: promptResponsePreview,
@@ -351,93 +354,7 @@ public extension GeminiHookPayload {
         let endIndex = collapsed.index(collapsed.startIndex, offsetBy: limit - 1)
         return "\(collapsed[..<endIndex])\u{2026}"
     }
-}
 
-// MARK: - JSONValue helper (copied from typical patterns if not already present)
-
-public enum JSONValue: Codable, Equatable, Sendable {
-    case string(String)
-    case number(Double)
-    case bool(Bool)
-    case object([String: JSONValue])
-    case array([JSONValue])
-    case null
-
-    public init(from decoder: any Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let value = try? container.decode(String.self) {
-            self = .string(value)
-        } else if let value = try? container.decode(Double.self) {
-            self = .number(value)
-        } else if let value = try? container.decode(Bool.self) {
-            self = .bool(value)
-        } else if let value = try? container.decode([String: JSONValue].self) {
-            self = .object(value)
-        } else if let value = try? container.decode([JSONValue].self) {
-            self = .array(value)
-        } else {
-            self = .null
-        }
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .string(let value): try container.encode(value)
-        case .number(let value): try container.encode(value)
-        case .bool(let value): try container.encode(value)
-        case .object(let value): try container.encode(value)
-        case .array(let value): try container.encode(value)
-        case .null: try container.encodeNil()
-        }
-    }
-
-    public func toString() -> String {
-        switch self {
-        case .string(let value):
-            return "\"\(Self.escapeJSONString(value))\""
-        case .number(let value):
-            if value.truncatingRemainder(dividingBy: 1) == 0 {
-                return String(format: "%.0f", value)
-            }
-            return String(value)
-        case .bool(let value):
-            return value ? "true" : "false"
-        case .object(let value):
-            let pairs = value.map { "\"\(Self.escapeJSONString($0.key))\":\($0.value.toString())" }
-                .sorted()
-                .joined(separator: ",")
-            return "{\(pairs)}"
-        case .array(let value):
-            let elements = value.map { $0.toString() }.joined(separator: ",")
-            return "[\(elements)]"
-        case .null:
-            return "null"
-        }
-    }
-
-    private static func escapeJSONString(_ value: String) -> String {
-        var result = ""
-        for char in value {
-            switch char {
-            case "\"": result += "\\\""
-            case "\\": result += "\\\\"
-            case "\n": result += "\\n"
-            case "\r": result += "\\r"
-            case "\t": result += "\\t"
-            default:
-                if let ascii = char.asciiValue, ascii < 0x20 {
-                    result += String(format: "\\u%04x", ascii)
-                } else {
-                    result.append(char)
-                }
-            }
-        }
-        return result
-    }
-}
-
-public extension GeminiHookPayload {
     func withRuntimeContext(environment: [String: String]) -> GeminiHookPayload {
         var payload = self
 
@@ -489,5 +406,55 @@ public extension GeminiHookPayload {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let tty = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (tty == "not a tty") ? nil : tty
+    }
+}
+
+// MARK: - GeminiHookJSONValue helper
+
+public typealias GeminiHookJSONValue = CodexHookJSONValue
+
+public extension GeminiHookJSONValue {
+    func toString() -> String {
+        switch self {
+        case .string(let value):
+            return "\"\(Self.escapeJSONString(value))\""
+        case .number(let value):
+            if value.truncatingRemainder(dividingBy: 1) == 0 {
+                return String(format: "%.0f", value)
+            }
+            return String(value)
+        case .boolean(let value):
+            return value ? "true" : "false"
+        case .object(let value):
+            let pairs = value.map { "\"\(Self.escapeJSONString($0.key))\":\($0.value.toString())" }
+                .sorted()
+                .joined(separator: ",")
+            return "{\(pairs)}"
+        case .array(let value):
+            let elements = value.map { $0.toString() }.joined(separator: ",")
+            return "[\(elements)]"
+        case .null:
+            return "null"
+        }
+    }
+
+    private static func escapeJSONString(_ value: String) -> String {
+        var result = ""
+        for char in value {
+            switch char {
+            case "\"": result += "\\\""
+            case "\\": result += "\\\\"
+            case "\n": result += "\\n"
+            case "\r": result += "\\r"
+            case "\t": result += "\\t"
+            default:
+                if let ascii = char.asciiValue, ascii < 0x20 {
+                    result += String(format: "\\u%04x", ascii)
+                } else {
+                    result.append(char)
+                }
+            }
+        }
+        return result
     }
 }

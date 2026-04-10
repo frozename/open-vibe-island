@@ -418,7 +418,7 @@ final class SessionDiscoveryCoordinator {
         }
 
         let merged = GeminiSessionMetadata(
-            sessionId: discovered.sessionId ?? existing.sessionId,
+            sessionID: discovered.sessionID ?? existing.sessionID,
             initialUserPrompt: existing.initialUserPrompt ?? discovered.initialUserPrompt ?? discovered.lastUserPrompt,
             lastUserPrompt: discovered.lastUserPrompt ?? existing.lastUserPrompt,
             lastAssistantMessage: discovered.lastAssistantMessage ?? existing.lastAssistantMessage,
