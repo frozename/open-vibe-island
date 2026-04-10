@@ -229,6 +229,8 @@ final class ProcessMonitoringCoordinator {
             payload.sessionID
         case let .cursorSessionMetadataUpdated(payload):
             payload.sessionID
+        case let .geminiSessionMetadataUpdated(payload):
+            payload.sessionID
         case let .actionableStateResolved(payload):
             payload.sessionID
         }
@@ -309,6 +311,35 @@ final class ProcessMonitoringCoordinator {
         ).isEmpty
         if isCursorRunning {
             for session in sessions where session.tool == .cursor && !session.isDemoSession {
+                aliveIDs.insert(session.id)
+            }
+        }
+
+        // Gemini sessions: two-pass — sessionID first, then cwd fallback.
+        let geminiProcesses = activeProcesses.filter { $0.tool == .geminiCLI }
+        var claimedGeminiIndices = Set<Int>()
+
+        // Pass 1: exact sessionID match (highest priority)
+        for session in sessions where session.tool == .geminiCLI && !session.isDemoSession {
+            if let idx = geminiProcesses.indices.first(where: { i in
+                guard !claimedGeminiIndices.contains(i) else { return false }
+                let proc = geminiProcesses[i]
+                return proc.sessionID != nil && proc.sessionID == session.id
+            }) {
+                claimedGeminiIndices.insert(idx)
+                aliveIDs.insert(session.id)
+            }
+        }
+
+        // Pass 2: working directory fallback (only unclaimed sessions and processes)
+        for session in sessions where session.tool == .geminiCLI && !session.isDemoSession && !aliveIDs.contains(session.id) {
+            let sessionCWD = normalizedPathForMatching(session.jumpTarget?.workingDirectory)
+            if let idx = geminiProcesses.indices.first(where: { i in
+                guard !claimedGeminiIndices.contains(i) else { return false }
+                let proc = geminiProcesses[i]
+                return proc.workingDirectory != nil && normalizedPathForMatching(proc.workingDirectory) == sessionCWD
+            }) {
+                claimedGeminiIndices.insert(idx)
                 aliveIDs.insert(session.id)
             }
         }

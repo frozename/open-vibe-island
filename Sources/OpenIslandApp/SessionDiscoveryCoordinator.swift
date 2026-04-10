@@ -14,6 +14,8 @@ final class SessionDiscoveryCoordinator {
         var claudeRecordsNeedPrune: Bool
         var cursorRecords: [CursorTrackedSessionRecord]
         var cursorRecordsNeedPrune: Bool
+        var geminiRecords: [GeminiTrackedSessionRecord]
+        var geminiRecordsNeedPrune: Bool
         var discoveredCodexRecords: [CodexTrackedSessionRecord]
         var discoveredClaudeSessions: [AgentSession]
         var hooksBinaryURL: URL?
@@ -44,6 +46,9 @@ final class SessionDiscoveryCoordinator {
     private let cursorSessionRegistry = CursorSessionRegistry()
 
     @ObservationIgnored
+    private let geminiSessionRegistry = GeminiSessionRegistry()
+
+    @ObservationIgnored
     let codexRolloutWatcher = CodexRolloutWatcher()
 
     @ObservationIgnored
@@ -60,6 +65,9 @@ final class SessionDiscoveryCoordinator {
 
     @ObservationIgnored
     private var cursorSessionPersistenceTask: Task<Void, Never>?
+
+    @ObservationIgnored
+    private var geminiSessionPersistenceTask: Task<Void, Never>?
 
     private var state: SessionState {
         get { stateAccessor?() ?? SessionState() }
@@ -84,6 +92,9 @@ final class SessionDiscoveryCoordinator {
         let allCursor = (try? cursorSessionRegistry.load()) ?? []
         let cursorRecords = allCursor.filter { $0.updatedAt >= cutoff && $0.shouldRestoreToLiveState }
 
+        let allGemini = (try? geminiSessionRegistry.load()) ?? []
+        let geminiRecords = allGemini.filter { $0.updatedAt >= cutoff && $0.shouldRestoreToLiveState }
+
         let discoveredCodex = codexRolloutDiscovery.discoverRecentSessions()
         let discoveredClaude = claudeTranscriptDiscovery.discoverRecentSessions()
 
@@ -94,6 +105,8 @@ final class SessionDiscoveryCoordinator {
             claudeRecordsNeedPrune: claudeRecords != allClaude,
             cursorRecords: cursorRecords,
             cursorRecordsNeedPrune: cursorRecords != allCursor,
+            geminiRecords: geminiRecords,
+            geminiRecordsNeedPrune: geminiRecords != allGemini,
             discoveredCodexRecords: discoveredCodex,
             discoveredClaudeSessions: discoveredClaude,
             hooksBinaryURL: HooksBinaryLocator.locate(
@@ -115,6 +128,9 @@ final class SessionDiscoveryCoordinator {
         if payload.cursorRecordsNeedPrune {
             try? cursorSessionRegistry.save(payload.cursorRecords)
         }
+        if payload.geminiRecordsNeedPrune {
+            try? geminiSessionRegistry.save(payload.geminiRecords)
+        }
 
         // Restore persisted Codex sessions.
         if !payload.codexRecords.isEmpty {
@@ -134,6 +150,13 @@ final class SessionDiscoveryCoordinator {
             let restoredSessions = payload.cursorRecords.map(\.restorableSession)
             state = SessionState(sessions: mergeDiscoveredSessions(restoredSessions))
             onStatusMessage?("Restored \(payload.cursorRecords.count) recent Cursor session(s) from local registry.")
+        }
+
+        // Restore persisted Gemini sessions.
+        if !payload.geminiRecords.isEmpty {
+            let restoredSessions = payload.geminiRecords.map(\.restorableSession)
+            state = SessionState(sessions: mergeDiscoveredSessions(restoredSessions))
+            onStatusMessage?("Restored \(payload.geminiRecords.count) recent Gemini session(s) from local registry.")
         }
 
         // Merge discovered Codex sessions.
@@ -207,6 +230,7 @@ final class SessionDiscoveryCoordinator {
         merged.codexMetadata = mergeCodexMetadata(existing.codexMetadata, discovered.codexMetadata)
         merged.claudeMetadata = mergeClaudeMetadata(existing.claudeMetadata, discovered.claudeMetadata)
         merged.cursorMetadata = mergeCursorMetadata(existing.cursorMetadata, discovered.cursorMetadata)
+        merged.geminiMetadata = mergeGeminiMetadata(existing.geminiMetadata, discovered.geminiMetadata)
 
         return merged
     }
@@ -376,6 +400,49 @@ final class SessionDiscoveryCoordinator {
         let registry = cursorSessionRegistry
 
         cursorSessionPersistenceTask = Task.detached(priority: .utility) {
+            try? await Task.sleep(for: .milliseconds(250))
+            try? registry.save(records)
+        }
+    }
+
+    private func mergeGeminiMetadata(
+        _ existing: GeminiSessionMetadata?,
+        _ discovered: GeminiSessionMetadata?
+    ) -> GeminiSessionMetadata? {
+        guard let existing else {
+            return discovered?.isEmpty == true ? nil : discovered
+        }
+
+        guard let discovered else {
+            return existing.isEmpty ? nil : existing
+        }
+
+        let merged = GeminiSessionMetadata(
+            sessionId: discovered.sessionId ?? existing.sessionId,
+            initialUserPrompt: existing.initialUserPrompt ?? discovered.initialUserPrompt ?? discovered.lastUserPrompt,
+            lastUserPrompt: discovered.lastUserPrompt ?? existing.lastUserPrompt,
+            lastAssistantMessage: discovered.lastAssistantMessage ?? existing.lastAssistantMessage,
+            currentTool: discovered.currentTool ?? existing.currentTool,
+            currentToolInputPreview: discovered.currentToolInputPreview ?? existing.currentToolInputPreview,
+            transcriptPath: discovered.transcriptPath ?? existing.transcriptPath
+        )
+        return merged.isEmpty ? nil : merged
+    }
+
+    func scheduleGeminiSessionPersistence() {
+        geminiSessionPersistenceTask?.cancel()
+
+        let records = state.sessions
+            .filter {
+                $0.tool == .geminiCLI
+                    && $0.isTrackedLiveSession
+                    && $0.updatedAt >= Date.now.addingTimeInterval(-86_400)
+                    && ($0.jumpTarget != nil || $0.geminiMetadata?.transcriptPath != nil)
+            }
+            .map(GeminiTrackedSessionRecord.init(session:))
+        let registry = geminiSessionRegistry
+
+        geminiSessionPersistenceTask = Task.detached(priority: .utility) {
             try? await Task.sleep(for: .milliseconds(250))
             try? registry.save(records)
         }

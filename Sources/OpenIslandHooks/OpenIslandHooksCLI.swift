@@ -14,12 +14,13 @@ struct OpenIslandHooksCLI {
         case droid
         case codebuddy
         case cursor
+        case gemini
 
         var isClaudeFormat: Bool {
             switch self {
             case .claude, .qoder, .qwen, .factory, .droid, .codebuddy:
                 return true
-            case .codex, .cursor:
+            case .codex, .cursor, .gemini:
                 return false
             }
         }
@@ -36,6 +37,7 @@ struct OpenIslandHooksCLI {
             let source = hookSource(arguments: arguments)
             let sourceString = rawSourceString(arguments: arguments)
             let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
             let client = BridgeCommandClient(socketURL: BridgeSocketLocation.currentURL())
 
             switch source {
@@ -82,6 +84,25 @@ struct OpenIslandHooksCLI {
                 }
 
                 if case let .cursorHookDirective(directive) = response {
+                    let encoder = JSONEncoder()
+                    let output = try encoder.encode(directive)
+                    FileHandle.standardOutput.write(output)
+                    FileHandle.standardOutput.write(Data("\n".utf8))
+                }
+            case .gemini:
+                let payload = try decoder
+                    .decode(GeminiHookPayload.self, from: input)
+                    .withRuntimeContext(environment: ProcessInfo.processInfo.environment)
+
+                let timeout: TimeInterval = payload.isBlockingHook
+                    ? Self.interactiveClaudeHookTimeout
+                    : 45
+
+                guard let response = try? client.send(.processGeminiHook(payload), timeout: timeout) else {
+                    return
+                }
+
+                if case let .geminiHookDirective(directive) = response {
                     let encoder = JSONEncoder()
                     let output = try encoder.encode(directive)
                     FileHandle.standardOutput.write(output)
