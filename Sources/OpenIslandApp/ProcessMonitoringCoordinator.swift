@@ -476,6 +476,9 @@ final class ProcessMonitoringCoordinator {
             .filter { proc in
                 // Skip processes whose TTY is already represented by a hook-created session.
                 if let tty = proc.terminalTTY, representedTTYs.contains(tty) { return false }
+                // Fall back to CWD — the hook session may have a different or nil
+                // TTY, but matching working directory means the same session.
+                if let cwd = normalizedPathForMatching(proc.workingDirectory), representedCWDs.contains(cwd) { return false }
                 return true
             }
             .filter { proc in
