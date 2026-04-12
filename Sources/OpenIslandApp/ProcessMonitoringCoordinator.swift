@@ -834,7 +834,7 @@ final class ProcessMonitoringCoordinator {
             return nil
         }
 
-        return URL(fileURLWithPath: value).standardizedFileURL.path.lowercased()
+        return URL(fileURLWithPath: value).resolvingSymlinksInPath().path.lowercased()
     }
 
     func normalizedTTYForMatching(_ value: String?) -> String? {
