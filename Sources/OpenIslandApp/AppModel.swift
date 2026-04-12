@@ -333,6 +333,10 @@ final class AppModel {
         surfacedSessions
     }
 
+    var groupedIslandSessions: [IslandListItem] {
+        groupIslandSessions(islandListSessions)
+    }
+
     var recentSessionCount: Int {
         recentSessions.count
     }
