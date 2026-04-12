@@ -52,6 +52,27 @@ struct OpenIslandBrandMark: View {
         .drawingGroup(opaque: false, colorMode: .extendedLinear)
     }
 
+    /// Creates an `NSImage` suitable for use as a macOS menu bar icon.
+    /// Marked as a template image so the system handles light/dark/active appearance.
+    static func menuBarIcon(pointSize: CGFloat = 18) -> NSImage {
+        let image = NSImage(size: NSSize(width: pointSize, height: pointSize), flipped: true) { bounds in
+            let cellSize = bounds.width / 8
+            for pixel in pixels {
+                let alpha: CGFloat = pixel.role == "E" ? 0.9 : 1.0
+                NSColor.black.withAlphaComponent(alpha).setFill()
+                NSRect(
+                    x: CGFloat(pixel.x) * cellSize,
+                    y: CGFloat(pixel.y) * cellSize,
+                    width: cellSize,
+                    height: cellSize
+                ).fill()
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
     private func fillColor(for role: Character) -> Color {
         switch style {
         case .duotone:
