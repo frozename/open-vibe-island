@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct OpenIslandBrandMark: View {
@@ -54,7 +55,8 @@ struct OpenIslandBrandMark: View {
 
     /// Creates an `NSImage` suitable for use as a macOS menu bar icon.
     /// Marked as a template image so the system handles light/dark/active appearance.
-    static func menuBarIcon(pointSize: CGFloat = 18) -> NSImage {
+    private static let _menuBarIcon: NSImage = {
+        let pointSize: CGFloat = 18
         let image = NSImage(size: NSSize(width: pointSize, height: pointSize), flipped: true) { bounds in
             let cellSize = bounds.width / 8
             for pixel in pixels {
@@ -71,7 +73,9 @@ struct OpenIslandBrandMark: View {
         }
         image.isTemplate = true
         return image
-    }
+    }()
+
+    static func menuBarIcon() -> NSImage { _menuBarIcon }
 
     private func fillColor(for role: Character) -> Color {
         switch style {
