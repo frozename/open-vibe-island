@@ -19,6 +19,14 @@ struct SessionGroup: Identifiable {
     let id: String
     let workspaceName: String
     let sessions: [AgentSession]
+    
+    var hasAttention: Bool {
+        sessions.contains { $0.phase.requiresAttention }
+    }
+    
+    var attentionCount: Int {
+        sessions.filter { $0.phase.requiresAttention }.count
+    }
 }
 
 func groupIslandSessions(_ sessions: [AgentSession]) -> [IslandListItem] {
