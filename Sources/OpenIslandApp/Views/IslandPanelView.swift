@@ -543,6 +543,7 @@ struct IslandPanelView: View {
                     .buttonStyle(.plain)
                 }
             } else {
+                let hasGlobalAttention = model.liveAttentionCount > 0
                 ForEach(model.groupedIslandSessions) { item in
                     switch item {
                     case .group(let group):
@@ -551,6 +552,7 @@ struct IslandPanelView: View {
                             referenceDate: context.date,
                             useDrawingGroup: model.notchStatus == .opened,
                             isInteractive: model.notchStatus == .opened,
+                            hasGlobalAttention: hasGlobalAttention,
                             lang: model.lang,
                             onApprove: { id, action in model.approvePermission(for: id, action: action) },
                             onAnswer: { id, answer in model.answerQuestion(for: id, answer: answer) },
@@ -563,6 +565,7 @@ struct IslandPanelView: View {
                             isActionable: session.phase.requiresAttention || session.id == actionableSessionID,
                             useDrawingGroup: model.notchStatus == .opened,
                             isInteractive: model.notchStatus == .opened,
+                            hasGlobalAttention: hasGlobalAttention,
                             lang: model.lang,
                             onApprove: { model.approvePermission(for: session.id, action: $0) },
                             onAnswer: { model.answerQuestion(for: session.id, answer: $0) },
@@ -985,6 +988,7 @@ private struct ProjectGroupView: View {
     let referenceDate: Date
     var useDrawingGroup: Bool = true
     var isInteractive: Bool = true
+    var hasGlobalAttention: Bool = false
     var lang: LanguageManager = .shared
     var onApprove: ((String, ApprovalAction) -> Void)?
     var onAnswer: ((String, QuestionPromptResponse) -> Void)?
@@ -1012,17 +1016,31 @@ private struct ProjectGroupView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(group.sessions) { session in
+                    let hasAttention = session.phase.requiresAttention
                     IslandSessionRow(
                         session: session,
                         referenceDate: referenceDate,
-                        isActionable: session.phase.requiresAttention,
+                        isActionable: hasAttention,
                         useDrawingGroup: useDrawingGroup,
                         isInteractive: isInteractive,
+                        hasGlobalAttention: false, // Group handles its own opacity
                         lang: lang,
                         onApprove: { onApprove?(session.id, $0) },
                         onAnswer: { onAnswer?(session.id, $0) },
                         onJump: { onJump(session) },
                         isGrouped: true
+                    )
+                    .background(
+                        Group {
+                            if hasAttention {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color(red: 245/255, green: 158/255, blue: 11/255, opacity: 0.08))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .strokeBorder(Color(red: 245/255, green: 158/255, blue: 11/255, opacity: 0.2))
+                                    )
+                            }
+                        }
                     )
                 }
             }
@@ -1046,6 +1064,7 @@ private struct ProjectGroupView: View {
         )
         .compositingGroup()
         .shadow(color: .black.opacity(0.24), radius: 0, y: 0)
+        .opacity(hasGlobalAttention && !group.hasAttention ? 0.6 : 1.0)
     }
 }
 
@@ -1057,6 +1076,7 @@ private struct IslandSessionRow: View {
     var isActionable: Bool = false
     var useDrawingGroup: Bool = true
     var isInteractive: Bool = true
+    var hasGlobalAttention: Bool = false
     var lang: LanguageManager = .shared
     var onApprove: ((ApprovalAction) -> Void)?
     var onAnswer: ((QuestionPromptResponse) -> Void)?
@@ -1197,11 +1217,11 @@ private struct IslandSessionRow: View {
         }
         .background(
             RoundedRectangle(cornerRadius: isActionable ? 24 : 22, style: .continuous)
-                .fill(isHighlighted ? Color.white.opacity(isActionable ? 0.06 : 0.05) : Color.black)
+                .fill(isGrouped && isActionable ? Color.clear : (isHighlighted ? Color.white.opacity(isActionable ? 0.06 : 0.05) : Color.black))
         )
         .overlay(
             RoundedRectangle(cornerRadius: isActionable ? 24 : 22, style: .continuous)
-                .strokeBorder(actionableBorderColor)
+                .strokeBorder(isGrouped && isActionable ? Color.clear : actionableBorderColor)
         )
         .compositingGroup()
         .shadow(color: .black.opacity(0.24), radius: isHighlighted ? 8 : 0, y: isHighlighted ? 6 : 0)
@@ -1217,6 +1237,7 @@ private struct IslandSessionRow: View {
         )
         .modifier(ConditionalDrawingGroup(enabled: useDrawingGroup && !isActionable))
         .contentShape(RoundedRectangle(cornerRadius: isActionable ? 24 : 22, style: .continuous))
+        .opacity(hasGlobalAttention && !isActionable ? 0.6 : 1.0)
         .animation(.easeInOut(duration: 0.15), value: isHighlighted)
         .onTapGesture(perform: handlePrimaryTap)
         .onHover { hovering in

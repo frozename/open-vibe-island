@@ -15,6 +15,7 @@ final class OverlayPanelController {
     private static let maxSessionListHeight: CGFloat = 560
     private static let maxVisibleSessionRows: Int = 6
     private static let openedRowSpacing: CGFloat = 6
+    private static let groupHeaderHeight: CGFloat = 42
     // Content padding (8) + scroll padding (4) + view chrome: outerBottomPadding (14) + header-content gap (12)
     private static let openedContentVerticalInsets: CGFloat = 38
     private static let openedEmptyStateHeight: CGFloat = 108
@@ -468,11 +469,9 @@ final class OverlayPanelController {
 
     private func openedContentHeight(for model: AppModel) -> CGFloat {
         let now = Date.now
-        let visibleSessions = openedVisibleSessions(
-            sessions: model.islandListSessions
-        )
+        let items = model.groupedIslandSessions
 
-        if visibleSessions.isEmpty {
+        if items.isEmpty {
             return Self.openedEmptyStateHeight
         }
 
@@ -497,16 +496,31 @@ final class OverlayPanelController {
             return 300
         }
 
-        let rowHeights = visibleSessions.map { session -> CGFloat in
-            if session.id == actionableID {
-                return session.estimatedIslandRowHeight(at: now)
-                    + actionableBodyHeight(for: session, model: model)
+        let itemHeights = items.map { item -> CGFloat in
+            switch item {
+            case .single(let session):
+                var height = session.estimatedIslandRowHeight(at: now)
+                if session.id == actionableID {
+                    height += actionableBodyHeight(for: session, model: model)
+                }
+                return height
+            case .group(let group):
+                var height = Self.groupHeaderHeight
+                for (index, session) in group.sessions.enumerated() {
+                    height += session.estimatedIslandRowHeight(at: now)
+                    if session.id == actionableID {
+                        height += actionableBodyHeight(for: session, model: model)
+                    }
+                    if index < group.sessions.count - 1 {
+                        height += Self.openedRowSpacing
+                    }
+                }
+                return height
             }
-            return session.estimatedIslandRowHeight(at: now)
         }
 
-        let rowsHeight = rowHeights.reduce(CGFloat.zero, +)
-        let spacingHeight = CGFloat(max(0, rowHeights.count - 1)) * Self.openedRowSpacing
+        let rowsHeight = itemHeights.reduce(CGFloat.zero, +)
+        let spacingHeight = CGFloat(max(0, itemHeights.count - 1)) * Self.openedRowSpacing
         let listHeight = rowsHeight + spacingHeight
         // Cap to match AutoHeightScrollView's maxHeight in IslandPanelView.
         let cappedListHeight = min(listHeight, Self.maxSessionListHeight)
@@ -579,7 +593,7 @@ final class OverlayPanelController {
     }
 
     private func openedVisibleSessions(sessions: [AgentSession]) -> [AgentSession] {
-        Array(sessions.prefix(Self.maxVisibleSessionRows))
+        sessions
     }
 
     // MARK: - Event reposting
