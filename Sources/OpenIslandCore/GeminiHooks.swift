@@ -5,6 +5,8 @@ public enum GeminiHookEventName: String, Codable, Sendable {
     case sessionEnd = "SessionEnd"
     case beforeAgent = "BeforeAgent"
     case afterAgent = "AfterAgent"
+    case beforeModel = "BeforeModel"
+    case afterModel = "AfterModel"
     case beforeTool = "BeforeTool"
     case afterTool = "AfterTool"
     case preCompress = "PreCompress"
@@ -280,7 +282,11 @@ public extension GeminiHookPayload {
     var implicitStartSummary: String {
         switch hookEventName {
         case .sessionStart:
-            return "Gemini session started in \(workspaceName)."
+            switch source {
+            case "resume":  return "Gemini session resumed in \(workspaceName)."
+            case "clear":   return "Gemini session restarted in \(workspaceName)."
+            default:        return "Gemini session started in \(workspaceName)."
+            }
         case .beforeAgent:
             return "Gemini is preparing a response in \(workspaceName)."
         case .beforeTool:
@@ -313,6 +319,19 @@ public extension GeminiHookPayload {
 
     var toolInputPreview: String? {
         clipped(toolInput)
+    }
+
+    var toolResponsePreview: String? {
+        clipped(toolResponse)
+    }
+
+    var toolPermissionDetail: String? {
+        guard let details else { return nil }
+        if case let .object(obj) = details,
+           case let .string(name) = obj["tool_name"] {
+            return name
+        }
+        return nil
     }
 
     var permissionRequestTitle: String {

@@ -41,6 +41,8 @@ public enum GeminiHookInstaller {
         "SessionEnd",
         "BeforeAgent",
         "AfterAgent",
+        "BeforeModel",
+        "AfterModel",
         "BeforeTool",
         "AfterTool",
         "PreCompress",
