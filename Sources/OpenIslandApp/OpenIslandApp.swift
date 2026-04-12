@@ -126,7 +126,7 @@ struct OpenIslandApp: App {
         MenuBarExtra {
             MenuBarContentView(model: appDelegate.model)
         } label: {
-            OpenIslandBrandMark(size: 18, style: .template)
+            Image(nsImage: OpenIslandBrandMark.menuBarIcon())
                 .accessibilityLabel("Open Island")
         }
         .menuBarExtraStyle(.window)
