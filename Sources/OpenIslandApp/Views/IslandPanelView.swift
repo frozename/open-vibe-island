@@ -526,6 +526,7 @@ struct IslandPanelView: View {
                     lang: model.lang,
                     onApprove: { model.approvePermission(for: session.id, action: $0) },
                     onAnswer: { model.answerQuestion(for: session.id, answer: $0) },
+                    onDismissAdvisoryCard: { model.dismissAdvisoryCard(for: session.id) },
                     onJump: { model.jumpToSession(session) }
                 )
 
@@ -543,18 +544,37 @@ struct IslandPanelView: View {
                     .buttonStyle(.plain)
                 }
             } else {
-                ForEach(model.islandListSessions) { session in
-                    IslandSessionRow(
-                        session: session,
-                        referenceDate: context.date,
-                        isActionable: session.phase.requiresAttention || session.id == actionableSessionID,
-                        useDrawingGroup: model.notchStatus == .opened,
-                        isInteractive: model.notchStatus == .opened,
-                        lang: model.lang,
-                        onApprove: { model.approvePermission(for: session.id, action: $0) },
-                        onAnswer: { model.answerQuestion(for: session.id, answer: $0) },
-                        onJump: { model.jumpToSession(session) }
-                    )
+                let hasGlobalAttention = model.liveAttentionCount > 0
+                ForEach(model.groupedIslandSessions) { item in
+                    switch item {
+                    case .group(let group):
+                        ProjectGroupView(
+                            group: group,
+                            referenceDate: context.date,
+                            useDrawingGroup: model.notchStatus == .opened,
+                            isInteractive: model.notchStatus == .opened,
+                            hasGlobalAttention: hasGlobalAttention,
+                            lang: model.lang,
+                            onApprove: { id, action in model.approvePermission(for: id, action: action) },
+                            onAnswer: { id, answer in model.answerQuestion(for: id, answer: answer) },
+                            onDismissAdvisoryCard: { id in model.dismissAdvisoryCard(for: id) },
+                            onJump: { model.jumpToSession($0) }
+                        )
+                    case .single(let session):
+                        IslandSessionRow(
+                            session: session,
+                            referenceDate: context.date,
+                            isActionable: session.phase.requiresAttention || session.id == actionableSessionID,
+                            useDrawingGroup: model.notchStatus == .opened,
+                            isInteractive: model.notchStatus == .opened,
+                            hasGlobalAttention: hasGlobalAttention,
+                            lang: model.lang,
+                            onApprove: { model.approvePermission(for: session.id, action: $0) },
+                            onAnswer: { model.answerQuestion(for: session.id, answer: $0) },
+                            onDismissAdvisoryCard: { model.dismissAdvisoryCard(for: session.id) },
+                            onJump: { model.jumpToSession(session) }
+                        )
+                    }
                 }
             }
         }
@@ -964,6 +984,95 @@ private struct OpenedHeaderMetrics {
     let rightLaneWidth: CGFloat
 }
 
+// MARK: - Project Group View
+
+private struct ProjectGroupView: View {
+    let group: SessionGroup
+    let referenceDate: Date
+    var useDrawingGroup: Bool = true
+    var isInteractive: Bool = true
+    var hasGlobalAttention: Bool = false
+    var lang: LanguageManager = .shared
+    var onApprove: ((String, ApprovalAction) -> Void)?
+    var onAnswer: ((String, QuestionPromptResponse) -> Void)?
+    var onDismissAdvisoryCard: ((String) -> Void)?
+    let onJump: (AgentSession) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(group.hasAttention ? Color(red: 0.96, green: 0.62, blue: 0.04) : Color(red: 0.20, green: 0.83, blue: 0.60))
+                    .frame(width: 7, height: 7)
+
+                Text(group.workspaceName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                Text(group.hasAttention ? "\(group.attentionCount) needs approval" : "\(group.sessions.count) agents")
+                    .font(.system(size: 11))
+                    .foregroundStyle(group.hasAttention ? .orange.opacity(0.8) : .white.opacity(0.5))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(group.sessions) { session in
+                    let hasAttention = session.phase.requiresAttention
+                    IslandSessionRow(
+                        session: session,
+                        referenceDate: referenceDate,
+                        isActionable: hasAttention,
+                        useDrawingGroup: useDrawingGroup,
+                        isInteractive: isInteractive,
+                        hasGlobalAttention: false, // Group handles its own opacity
+                        lang: lang,
+                        onApprove: { onApprove?(session.id, $0) },
+                        onAnswer: { onAnswer?(session.id, $0) },
+                        onDismissAdvisoryCard: { onDismissAdvisoryCard?(session.id) },
+                        onJump: { onJump(session) },
+                        isGrouped: true
+                    )
+                    .background(
+                        Group {
+                            if hasAttention {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color(red: 245/255, green: 158/255, blue: 11/255, opacity: 0.08))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .strokeBorder(Color(red: 245/255, green: 158/255, blue: 11/255, opacity: 0.2))
+                                    )
+                            }
+                        }
+                    )
+                }
+            }
+            .padding(.leading, 14)
+            .overlay(
+                Rectangle()
+                    .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
+                    .frame(width: 1.5),
+                alignment: .leading
+            )
+            .padding(.leading, 18.5)
+            .padding(.bottom, 8)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.black)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.04))
+        )
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.24), radius: 0, y: 0)
+        .opacity(hasGlobalAttention && !group.hasAttention ? 0.6 : 1.0)
+    }
+}
+
 // MARK: - Session row (opened state)
 
 private struct IslandSessionRow: View {
@@ -972,10 +1081,13 @@ private struct IslandSessionRow: View {
     var isActionable: Bool = false
     var useDrawingGroup: Bool = true
     var isInteractive: Bool = true
+    var hasGlobalAttention: Bool = false
     var lang: LanguageManager = .shared
     var onApprove: ((ApprovalAction) -> Void)?
     var onAnswer: ((QuestionPromptResponse) -> Void)?
+    var onDismissAdvisoryCard: (() -> Void)?
     let onJump: () -> Void
+    var isGrouped: Bool = false
 
     @State private var isHighlighted = false
     @State private var isManuallyExpanded = false
@@ -994,7 +1106,7 @@ private struct IslandSessionRow: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .top, spacing: 12) {
-                        Text(session.spotlightHeadlineText)
+                        Text(isGrouped ? session.groupedHeadlineText : session.spotlightHeadlineText)
                             .font(.system(size: isActionable ? 15 : 14, weight: .semibold))
                             .foregroundStyle(headlineColor(for: presence))
                             .lineLimit(1)
@@ -1002,7 +1114,9 @@ private struct IslandSessionRow: View {
                         Spacer(minLength: 8)
 
                         HStack(spacing: 6) {
-                            compactBadge(session.tool.displayName, presence: presence)
+                            if !isGrouped {
+                                compactBadge(session.tool.displayName, presence: presence)
+                            }
                             if session.isRemote {
                                 compactBadge("SSH", presence: presence, icon: "network")
                             }
@@ -1109,11 +1223,11 @@ private struct IslandSessionRow: View {
         }
         .background(
             RoundedRectangle(cornerRadius: isActionable ? 24 : 22, style: .continuous)
-                .fill(isHighlighted ? Color.white.opacity(isActionable ? 0.06 : 0.05) : Color.black)
+                .fill(isGrouped && isActionable ? Color.clear : (isHighlighted ? Color.white.opacity(isActionable ? 0.06 : 0.05) : Color.black))
         )
         .overlay(
             RoundedRectangle(cornerRadius: isActionable ? 24 : 22, style: .continuous)
-                .strokeBorder(actionableBorderColor)
+                .strokeBorder(isGrouped && isActionable ? Color.clear : actionableBorderColor)
         )
         .compositingGroup()
         .shadow(color: .black.opacity(0.24), radius: isHighlighted ? 8 : 0, y: isHighlighted ? 6 : 0)
@@ -1129,6 +1243,7 @@ private struct IslandSessionRow: View {
         )
         .modifier(ConditionalDrawingGroup(enabled: useDrawingGroup && !isActionable))
         .contentShape(RoundedRectangle(cornerRadius: isActionable ? 24 : 22, style: .continuous))
+        .opacity(hasGlobalAttention && !isActionable ? 0.6 : 1.0)
         .animation(.easeInOut(duration: 0.15), value: isHighlighted)
         .onTapGesture(perform: handlePrimaryTap)
         .onHover { hovering in
@@ -1216,21 +1331,34 @@ private struct IslandSessionRow: View {
             )
 
             HStack(spacing: 8) {
-                Button("No") { onApprove?(.deny) }
-                    .buttonStyle(IslandWideButtonStyle(kind: .secondary))
-                Button("Yes") { onApprove?(.allowOnce) }
-                    .buttonStyle(IslandWideButtonStyle(kind: .warning))
-                if let toolName = session.permissionRequest?.toolName {
-                    Button("Always Allow (\(toolName))") {
-                        let rule = ClaudePermissionRuleValue(toolName: toolName)
-                        let update = ClaudePermissionUpdate.addRules(
-                            destination: .session,
-                            rules: [rule],
-                            behavior: .allow
-                        )
-                        onApprove?(.allowWithUpdates([update]))
+                if session.permissionRequest?.isAdvisory == true {
+                    // Advisory card for Gemini — approval happens in the terminal.
+                    Button(session.permissionRequest?.secondaryActionTitle ?? "Dismiss") {
+                        onDismissAdvisoryCard?()
                     }
-                    .buttonStyle(IslandWideButtonStyle(kind: .danger))
+                    .buttonStyle(IslandWideButtonStyle(kind: .secondary))
+                    Button("Go to Terminal") {
+                        onDismissAdvisoryCard?()
+                        onJump()
+                    }
+                    .buttonStyle(IslandWideButtonStyle(kind: .warning))
+                } else {
+                    Button("No") { onApprove?(.deny) }
+                        .buttonStyle(IslandWideButtonStyle(kind: .secondary))
+                    Button("Yes") { onApprove?(.allowOnce) }
+                        .buttonStyle(IslandWideButtonStyle(kind: .warning))
+                    if let toolName = session.permissionRequest?.toolName {
+                        Button("Always Allow (\(toolName))") {
+                            let rule = ClaudePermissionRuleValue(toolName: toolName)
+                            let update = ClaudePermissionUpdate.addRules(
+                                destination: .session,
+                                rules: [rule],
+                                behavior: .allow
+                            )
+                            onApprove?(.allowWithUpdates([update]))
+                        }
+                        .buttonStyle(IslandWideButtonStyle(kind: .danger))
+                    }
                 }
             }
         }

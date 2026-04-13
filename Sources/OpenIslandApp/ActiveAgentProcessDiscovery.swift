@@ -93,6 +93,20 @@ struct ActiveAgentProcessDiscovery {
                 continue
             }
 
+            if isGeminiProcess(command: process.command) {
+                guard let snapshot = geminiSnapshot(for: process, processesByPID: processesByPID) else {
+                    continue
+                }
+
+                let claimKey = "gemini:\(snapshot.sessionID ?? snapshot.terminalTTY ?? snapshot.workingDirectory ?? process.pid)"
+                guard claimedKeys.insert(claimKey).inserted else {
+                    continue
+                }
+
+                snapshots.append(snapshot)
+                continue
+            }
+
             if isOpenCodeProcess(command: process.command) {
                 let claimKey = "opencode:\(process.pid)"
                 guard claimedKeys.insert(claimKey).inserted else {
@@ -526,5 +540,78 @@ struct ActiveAgentProcessDiscovery {
         }
 
         return output
+    }
+
+    private func geminiSnapshot(
+        for process: RunningProcess,
+        processesByPID: [String: RunningProcess]
+    ) -> ProcessSnapshot? {
+        let lsofOutput = self.lsofOutput(pid: process.pid)
+        let workingDirectory = lsofOutput.flatMap(self.workingDirectory(from:))
+
+        // Gemini CLI stores transcripts in ~/.gemini/transcripts/
+        let transcriptPath = lsofOutput.flatMap {
+            self.matchingPath(in: $0, containing: "/.gemini/transcripts/", suffix: ".jsonl")
+        }
+        let sessionID = transcriptPath.flatMap(self.firstUUID(in:))
+            ?? self.geminiSessionID(from: process.command)
+
+        guard workingDirectory != nil || sessionID != nil else {
+            return nil
+        }
+
+        return ProcessSnapshot(
+            tool: .geminiCLI,
+            sessionID: sessionID,
+            workingDirectory: workingDirectory,
+            terminalTTY: process.terminalTTY,
+            terminalApp: self.terminalApp(for: process, processesByPID: processesByPID),
+            transcriptPath: transcriptPath
+        )
+    }
+
+    private func geminiSessionID(from command: String) -> String? {
+        let tokens = command.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !tokens.isEmpty else {
+            return nil
+        }
+
+        for index in tokens.indices {
+            let token = tokens[index]
+
+            if token == "--session-id" {
+                let nextIndex = tokens.index(after: index)
+                guard tokens.indices.contains(nextIndex) else {
+                    continue
+                }
+
+                if let sessionID = self.firstUUID(in: tokens[nextIndex]) {
+                    return sessionID
+                }
+            }
+
+            if token.hasPrefix("--session-id=") {
+                let value = String(token.split(separator: "=", maxSplits: 1).last ?? "")
+                if let sessionID = self.firstUUID(in: value) {
+                    return sessionID
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func isGeminiProcess(command: String) -> Bool {
+        let lowered = command.lowercased()
+
+        // Check all tokens — Gemini is often launched as "node /opt/homebrew/bin/gemini ..."
+        for token in lowered.split(separator: " ") {
+            if token == "gemini" || token.hasSuffix("/gemini") {
+                return true
+            }
+        }
+
+        // npx / npm exec or direct package execution patterns
+        return lowered.contains("@google/gemini-cli") || lowered.contains("/gemini-cli/")
     }
 }

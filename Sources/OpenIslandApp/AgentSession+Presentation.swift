@@ -161,6 +161,14 @@ extension AgentSession {
         return "\(headline) · \(prompt)"
     }
 
+    var groupedHeadlineText: String {
+        let agent = tool.displayName
+        if let activity = spotlightRunningActivityText {
+            return "\(agent) — \(activity)"
+        }
+        return "\(agent) — \(phase.displayName)"
+    }
+
     var spotlightHeadlinePromptText: String? {
         // Headline shows the initial prompt (session topic), not the latest.
         // The latest prompt is shown separately in the "You:" line.

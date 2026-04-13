@@ -52,6 +52,10 @@ public final class BridgeServer: @unchecked Sendable {
         let payload: CursorHookPayload
     }
 
+    private struct PendingGeminiInteraction {
+        let clientID: UUID
+    }
+
     private let socketURL: URL
     private let queue = DispatchQueue(label: "app.openisland.bridge.server")
     private let queueKey = DispatchSpecificKey<Void>()
@@ -63,6 +67,7 @@ public final class BridgeServer: @unchecked Sendable {
     private var pendingClaudeInteractions: [String: PendingClaudeInteraction] = [:]
     private var pendingOpenCodeInteractions: [String: PendingOpenCodeInteraction] = [:]
     private var pendingCursorInteractions: [String: PendingCursorInteraction] = [:]
+    private var pendingGeminiInteractions: [String: PendingGeminiInteraction] = [:]
     /// Caches Agent tool description from preToolUse for use by the next subagentStart.
     private var pendingAgentDescriptions: [String: String] = [:]
     /// Maps toolUseID → temporary task ID for TaskCreate, so postToolUse can update with real ID.
@@ -177,6 +182,7 @@ public final class BridgeServer: @unchecked Sendable {
         pendingClaudeToolContexts.removeAll()
         pendingOpenCodeInteractions.removeAll()
         pendingCursorInteractions.removeAll()
+        pendingGeminiInteractions.removeAll()
 
         let activeConnections = Array(clients.values)
         activeConnections.forEach { $0.readSource.cancel() }
@@ -370,6 +376,45 @@ public final class BridgeServer: @unchecked Sendable {
                 return
             }
 
+            if let interaction = pendingGeminiInteractions.removeValue(forKey: sessionID) {
+                let directive: GeminiHookDirective
+                let summary: String
+                let phase: SessionPhase
+                switch resolution {
+                case .allowOnce:
+                    directive = GeminiHookDirective(continue: true, decision: .allow)
+                    summary = "Permission approved."
+                    phase = .running
+                case let .deny(message, _):
+                    directive = GeminiHookDirective(continue: true, decision: .deny, reason: message)
+                    summary = message ?? "Permission denied in Open Island."
+                    phase = .completed
+                }
+
+                emit(
+                    phase == .completed
+                        ? .sessionCompleted(
+                            SessionCompleted(
+                                sessionID: sessionID,
+                                summary: summary,
+                                timestamp: .now
+                            )
+                        )
+                        : .activityUpdated(
+                            SessionActivityUpdated(
+                                sessionID: sessionID,
+                                summary: summary,
+                                phase: phase,
+                                timestamp: .now
+                            )
+                        )
+                )
+
+                send(.response(.geminiHookDirective(directive)), to: interaction.clientID)
+                send(.response(.acknowledged), to: clientID)
+                return
+            }
+
             localState.resolvePermission(sessionID: sessionID, resolution: resolution)
             broadcast([.event(
                 resolution.isApproved
@@ -431,6 +476,9 @@ public final class BridgeServer: @unchecked Sendable {
 
         case let .processCursorHook(payload):
             handleCursorHook(payload, from: clientID)
+
+        case let .processGeminiHook(payload):
+            handleGeminiHook(payload, from: clientID)
         }
     }
 
@@ -2214,7 +2262,7 @@ public final class BridgeServer: @unchecked Sendable {
     }
 
     private func hasSession(id: String) -> Bool {
-        localState.session(id: id) != nil || localState.session(id: id) != nil
+        localState.session(id: id) != nil
     }
 
     private func send(_ envelope: BridgeEnvelope, to clientID: UUID) {
@@ -2308,6 +2356,384 @@ public final class BridgeServer: @unchecked Sendable {
             )
         }
 
+        let pendingGeminiSessionIDs = pendingGeminiInteractions.compactMap { entry -> String? in
+            let (sessionID, pendingInteraction) = entry
+            return pendingInteraction.clientID == clientID ? sessionID : nil
+        }
+
+        for sessionID in pendingGeminiSessionIDs {
+            pendingGeminiInteractions.removeValue(forKey: sessionID)
+            emit(
+                .actionableStateResolved(
+                    ActionableStateResolved(
+                        sessionID: sessionID,
+                        summary: "Hook process disconnected.",
+                        timestamp: .now
+                    )
+                )
+            )
+        }
+
         client.readSource.cancel()
+    }
+
+    private func handleGeminiHook(_ payload: GeminiHookPayload, from clientID: UUID) {
+        switch payload.hookEventName {
+        case .sessionStart:
+            clearStaleGeminiInteractionIfNeeded(for: payload.sessionID)
+            self.emit(
+                .sessionStarted(
+                    SessionStarted(
+                        sessionID: payload.sessionID,
+                        title: payload.sessionTitle,
+                        tool: .geminiCLI,
+                        origin: .live,
+                        initialPhase: .running,
+                        summary: payload.implicitStartSummary,
+                        timestamp: .now,
+                        jumpTarget: payload.defaultJumpTarget,
+                        geminiMetadata: payload.defaultGeminiMetadata.isEmpty ? nil : payload.defaultGeminiMetadata
+                    )
+                )
+            )
+            self.send(.response(.acknowledged), to: clientID)
+
+        case .beforeAgent:
+            clearStaleGeminiInteractionIfNeeded(for: payload.sessionID)
+            ensureGeminiSessionExists(for: payload)
+            synchronizeGeminiJumpTarget(for: payload)
+            synchronizeGeminiMetadata(for: payload)
+            let promptSummary = payload.promptPreview
+            self.emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: promptSummary.map { "Prompt: \($0)" } ?? payload.implicitStartSummary,
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            self.send(.response(.acknowledged), to: clientID)
+
+        case .afterAgent:
+            clearStaleGeminiInteractionIfNeeded(for: payload.sessionID)
+            ensureGeminiSessionExists(for: payload)
+            synchronizeGeminiJumpTarget(for: payload)
+            synchronizeGeminiMetadata(for: payload)
+            let summary = payload.promptResponsePreview ?? "Gemini responded."
+
+            if payload.stopHookActive == true {
+                // Agent is retrying its own response — don't pop completion.
+                self.emit(
+                    .activityUpdated(
+                        SessionActivityUpdated(
+                            sessionID: payload.sessionID,
+                            summary: "Retrying: \(summary)",
+                            phase: .running,
+                            timestamp: .now
+                        )
+                    )
+                )
+            } else {
+                self.emit(
+                    .sessionCompleted(
+                        SessionCompleted(
+                            sessionID: payload.sessionID,
+                            summary: summary,
+                            timestamp: .now
+                        )
+                    )
+                )
+            }
+            self.send(.response(.acknowledged), to: clientID)
+
+        case .beforeModel:
+            ensureGeminiSessionExists(for: payload)
+            synchronizeGeminiJumpTarget(for: payload)
+            self.emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: "Gemini is thinking\u{2026}",
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            self.send(.response(.acknowledged), to: clientID)
+
+        case .afterModel:
+            ensureGeminiSessionExists(for: payload)
+            synchronizeGeminiJumpTarget(for: payload)
+            synchronizeGeminiMetadata(for: payload)
+            self.emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: payload.promptResponsePreview ?? "Gemini received a response.",
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            self.send(.response(.acknowledged), to: clientID)
+
+        case .beforeTool:
+            clearStaleGeminiInteractionIfNeeded(for: payload.sessionID)
+            ensureGeminiSessionExists(for: payload)
+            synchronizeGeminiJumpTarget(for: payload)
+            synchronizeGeminiMetadata(for: payload)
+
+            // Emit activity update — matches Claude's preToolUse pattern.
+            // Unlike Claude (which has a separate permissionRequest event for
+            // blocking approval), Gemini fires beforeTool for ALL tools.
+            // We cannot distinguish auto-approved from approval-needed, so we
+            // always track activity without showing an approval card.
+            let toolName = payload.toolName ?? "tool"
+            let summary = payload.toolInputPreview.map { "Running \(toolName): \($0)" } ?? "Running \(toolName)"
+            self.emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: summary,
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+
+            // Allow immediately — Gemini CLI fires beforeTool before its own
+            // approval check.  Blocking here prevents Gemini from showing its
+            // own permission prompt and hangs the agent in YOLO mode.
+            let directive = GeminiHookDirective(continue: true, decision: .allow)
+            send(.response(.geminiHookDirective(directive)), to: clientID)
+
+        case .afterTool:
+            clearStaleGeminiInteractionIfNeeded(for: payload.sessionID)
+            ensureGeminiSessionExists(for: payload)
+            synchronizeGeminiJumpTarget(for: payload)
+            synchronizeGeminiMetadata(for: payload)
+            let toolName = payload.toolName ?? "Tool"
+            let summary: String
+            if let preview = payload.toolResponsePreview {
+                summary = "\(toolName): \(preview)"
+            } else {
+                summary = "\(toolName) finished."
+            }
+            self.emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: summary,
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            self.send(.response(.acknowledged), to: clientID)
+
+        case .notification:
+            ensureGeminiSessionExists(for: payload)
+            synchronizeGeminiJumpTarget(for: payload)
+            synchronizeGeminiMetadata(for: payload)
+
+            if payload.notificationType == "ToolPermission" {
+                clearStaleGeminiInteractionIfNeeded(for: payload.sessionID)
+                // Gemini is about to show "Action Required" in the terminal.
+                // Pop an advisory card so the user knows to go approve there.
+                let toolDetail = payload.toolPermissionDetail
+                self.emit(
+                    .permissionRequested(
+                        PermissionRequested(
+                            sessionID: payload.sessionID,
+                            request: PermissionRequest(
+                                title: toolDetail.map { "Allow \($0)" } ?? "Gemini needs approval",
+                                summary: payload.messagePreview
+                                    ?? "Gemini needs approval in your terminal.",
+                                affectedPath: payload.permissionAffectedPath,
+                                primaryActionTitle: "Go to Terminal",
+                                secondaryActionTitle: "Dismiss",
+                                toolName: payload.toolName,
+                                isAdvisory: true
+                            ),
+                            timestamp: .now
+                        )
+                    )
+                )
+
+                // Use a sentinel UUID — NOT the real clientID — so that when
+                // the hook CLI exits and removeClient fires, it won't find
+                // this entry and won't clear the card. The card persists until
+                // afterTool/afterAgent fires clearStaleGeminiInteractionIfNeeded.
+                pendingGeminiInteractions[payload.sessionID] = PendingGeminiInteraction(
+                    clientID: UUID()
+                )
+
+                // Safety timeout: automatically clear the stuck card after 5 minutes
+                // if it hasn't been resolved by afterTool/afterAgent/sessionEnd.
+                let sessionID = payload.sessionID
+                queue.asyncAfter(deadline: .now() + 300.0) { [weak self] in
+                    guard let self else { return }
+                    if self.pendingGeminiInteractions[sessionID] != nil {
+                        self.clearStaleGeminiInteractionIfNeeded(for: sessionID)
+                    }
+                }
+            } else {
+                self.emit(
+                    .activityUpdated(
+                        SessionActivityUpdated(
+                            sessionID: payload.sessionID,
+                            summary: payload.messagePreview ?? payload.implicitStartSummary,
+                            phase: .running,
+                            timestamp: .now
+                        )
+                    )
+                )
+            }
+
+            self.send(.response(.acknowledged), to: clientID)
+
+        case .preCompress:
+            ensureGeminiSessionExists(for: payload)
+            synchronizeGeminiJumpTarget(for: payload)
+            synchronizeGeminiMetadata(for: payload)
+            self.emit(
+                .activityUpdated(
+                    SessionActivityUpdated(
+                        sessionID: payload.sessionID,
+                        summary: "Gemini is compacting the conversation.",
+                        phase: .running,
+                        timestamp: .now
+                    )
+                )
+            )
+            self.send(.response(.acknowledged), to: clientID)
+
+        case .sessionEnd:
+            clearStaleGeminiInteractionIfNeeded(for: payload.sessionID)
+            ensureGeminiSessionExists(for: payload)
+            synchronizeGeminiJumpTarget(for: payload)
+            synchronizeGeminiMetadata(for: payload)
+
+            let completionSummary: String
+            switch payload.reason {
+            case "clear":              completionSummary = "Gemini session cleared."
+            case "logout":             completionSummary = "Gemini session logged out."
+            case "prompt_input_exit":  completionSummary = "Gemini session exited at prompt."
+            default:                   completionSummary = payload.promptResponsePreview ?? "Gemini session ended."
+            }
+
+            self.emit(
+                .sessionCompleted(
+                    SessionCompleted(
+                        sessionID: payload.sessionID,
+                        summary: completionSummary,
+                        timestamp: .now,
+                        isInterrupt: true,
+                        isSessionEnd: true
+                    )
+                )
+            )
+            self.send(.response(.acknowledged), to: clientID)
+        }
+    }
+
+    private func clearStaleGeminiInteractionIfNeeded(for sessionID: String) {
+        guard pendingGeminiInteractions.removeValue(forKey: sessionID) != nil else {
+            return
+        }
+
+        self.emit(
+            .actionableStateResolved(
+                ActionableStateResolved(
+                    sessionID: sessionID,
+                    summary: "Approval was handled outside Open Island.",
+                    timestamp: .now
+                )
+            )
+        )
+    }
+
+    private func ensureGeminiSessionExists(for payload: GeminiHookPayload) {
+        guard !hasSession(id: payload.sessionID) else {
+            return
+        }
+
+        self.emit(
+            .sessionStarted(
+                SessionStarted(
+                    sessionID: payload.sessionID,
+                    title: payload.sessionTitle,
+                    tool: .geminiCLI,
+                    origin: .live,
+                    initialPhase: .running,
+                    summary: payload.implicitStartSummary,
+                    timestamp: .now,
+                    jumpTarget: payload.defaultJumpTarget,
+                    geminiMetadata: payload.defaultGeminiMetadata.isEmpty ? nil : payload.defaultGeminiMetadata
+                )
+            )
+        )
+    }
+
+    private func synchronizeGeminiJumpTarget(for payload: GeminiHookPayload) {
+        guard let existingSession = localState.session(id: payload.sessionID) else {
+            return
+        }
+
+        var jumpTarget = payload.defaultJumpTarget
+
+        if jumpTarget.terminalSessionID == nil,
+           let existingID = existingSession.jumpTarget?.terminalSessionID,
+           !existingID.isEmpty {
+            jumpTarget.terminalSessionID = existingID
+        }
+
+        guard existingSession.jumpTarget != jumpTarget else {
+            return
+        }
+
+        self.emit(
+            .jumpTargetUpdated(
+                JumpTargetUpdated(
+                    sessionID: payload.sessionID,
+                    jumpTarget: jumpTarget,
+                    timestamp: .now
+                )
+            )
+        )
+    }
+
+    private func synchronizeGeminiMetadata(for payload: GeminiHookPayload) {
+        guard let existingSession = localState.session(id: payload.sessionID) else {
+            return
+        }
+
+        let existing = existingSession.geminiMetadata
+        let update = payload.defaultGeminiMetadata
+        let clearToolState = payload.hookEventName == .sessionEnd || payload.hookEventName == .afterTool || payload.hookEventName == .afterAgent
+
+        let merged = GeminiSessionMetadata(
+            sessionID: update.sessionID ?? existing?.sessionID,
+            initialUserPrompt: existing?.initialUserPrompt ?? update.initialUserPrompt ?? update.lastUserPrompt,
+            lastUserPrompt: update.lastUserPrompt ?? existing?.lastUserPrompt,
+            lastAssistantMessage: update.lastAssistantMessage ?? existing?.lastAssistantMessage,
+            currentTool: clearToolState ? nil : (update.currentTool ?? existing?.currentTool),
+            currentToolInputPreview: clearToolState ? nil : (update.currentToolInputPreview ?? existing?.currentToolInputPreview),
+            transcriptPath: update.transcriptPath ?? existing?.transcriptPath
+        )
+
+        guard existing != merged else { return }
+
+        self.emit(
+            .geminiSessionMetadataUpdated(
+                GeminiSessionMetadataUpdated(
+                    sessionID: payload.sessionID,
+                    geminiMetadata: merged,
+                    timestamp: .now
+                )
+            )
+        )
     }
 }

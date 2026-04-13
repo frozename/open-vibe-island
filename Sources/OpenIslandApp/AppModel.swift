@@ -56,7 +56,10 @@ final class AppModel {
     var isClaudeUsageSetupBusy: Bool { hooks.isClaudeUsageSetupBusy }
     var codexHookStatus: CodexHookInstallationStatus? { hooks.codexHookStatus }
     var claudeHookStatus: ClaudeHookInstallationStatus? { hooks.claudeHookStatus }
+    var cursorHookStatus: CursorHookInstallationStatus? { hooks.cursorHookStatus }
+    var geminiHookStatus: GeminiHookInstallationStatus? { hooks.geminiHookStatus }
     var claudeStatusLineStatus: ClaudeStatusLineInstallationStatus? { hooks.claudeStatusLineStatus }
+
     var claudeUsageSnapshot: ClaudeUsageSnapshot? { hooks.claudeUsageSnapshot }
     var codexUsageSnapshot: CodexUsageSnapshot? { hooks.codexUsageSnapshot }
     var hooksBinaryURL: URL? { hooks.hooksBinaryURL }
@@ -91,15 +94,20 @@ final class AppModel {
     var claudeHealthReport: HookHealthReport? { hooks.claudeHealthReport }
     var codexHealthReport: HookHealthReport? { hooks.codexHealthReport }
     var cursorHooksInstalled: Bool { hooks.cursorHooksInstalled }
+    var geminiHooksInstalled: Bool { hooks.geminiHooksInstalled }
     var isCursorHookSetupBusy: Bool { hooks.isCursorHookSetupBusy }
+    var isGeminiHookSetupBusy: Bool { hooks.isGeminiHookSetupBusy }
     var cursorHookStatusTitle: String { hooks.cursorHookStatusTitle }
     var cursorHookStatusSummary: String { hooks.cursorHookStatusSummary }
+    var geminiHookStatusTitle: String { hooks.geminiHookStatusTitle }
+    var geminiHookStatusSummary: String { hooks.geminiHookStatusSummary }
     var codexHookStatusTitle: String { hooks.codexHookStatusTitle }
     var codexHookStatusSummary: String { hooks.codexHookStatusSummary }
     func refreshCodexHookStatus() { hooks.refreshCodexHookStatus() }
     func refreshClaudeHookStatus() { hooks.refreshClaudeHookStatus() }
     func refreshOpenCodePluginStatus() { hooks.refreshOpenCodePluginStatus() }
     func refreshCursorHookStatus() { hooks.refreshCursorHookStatus() }
+    func refreshGeminiHookStatus() { hooks.refreshGeminiHookStatus() }
     func refreshClaudeUsageState() { hooks.refreshClaudeUsageState() }
     func refreshCodexUsageState() { hooks.refreshCodexUsageState() }
     func installCodexHooks() { hooks.installCodexHooks() }
@@ -119,6 +127,8 @@ final class AppModel {
     func uninstallOpenCodePlugin() { hooks.uninstallOpenCodePlugin() }
     func installCursorHooks() { hooks.installCursorHooks() }
     func uninstallCursorHooks() { hooks.uninstallCursorHooks() }
+    func installGeminiHooks() { hooks.installGeminiHooks() }
+    func uninstallGeminiHooks() { hooks.uninstallGeminiHooks() }
     func installClaudeUsageBridge() { hooks.installClaudeUsageBridge() }
     func uninstallClaudeUsageBridge() { hooks.uninstallClaudeUsageBridge() }
     func runHealthChecks() { hooks.runHealthChecks() }
@@ -284,6 +294,7 @@ final class AppModel {
             self?.discovery.scheduleCodexSessionPersistence()
             self?.discovery.scheduleClaudeSessionPersistence()
             self?.discovery.scheduleCursorSessionPersistence()
+            self?.discovery.scheduleGeminiSessionPersistence()
         }
 
         refreshOverlayDisplayConfiguration()
@@ -320,6 +331,10 @@ final class AppModel {
 
     var islandListSessions: [AgentSession] {
         surfacedSessions
+    }
+
+    var groupedIslandSessions: [IslandListItem] {
+        groupIslandSessions(islandListSessions)
     }
 
     var recentSessionCount: Int {
@@ -466,6 +481,7 @@ final class AppModel {
             hooks.refreshCCForkHookStatuses()
             hooks.refreshOpenCodePluginStatus()
             hooks.refreshCursorHookStatus()
+            hooks.refreshGeminiHookStatus()
             hooks.refreshClaudeUsageState()
             hooks.startClaudeUsageMonitoringIfNeeded()
             hooks.refreshCodexUsageState()
@@ -798,6 +814,18 @@ final class AppModel {
         )
     }
 
+    @MainActor
+    func dismissAdvisoryCard(for sessionID: String) {
+        dismissNotificationSurfaceIfPresent(for: sessionID)
+        let event = AgentEvent.actionableStateResolved(
+            ActionableStateResolved(
+                sessionID: sessionID,
+                summary: "Waiting for approval in terminal.",
+                timestamp: .now
+            )
+        )
+        applyTrackedEvent(event, ingress: .bridge)
+    }
 
     private func send(_ command: BridgeCommand, userMessage: String) {
         lastActionMessage = userMessage
@@ -860,6 +888,7 @@ final class AppModel {
         discovery.scheduleCodexSessionPersistence()
         discovery.scheduleClaudeSessionPersistence()
         discovery.scheduleCursorSessionPersistence()
+        discovery.scheduleGeminiSessionPersistence()
 
         if updateLastActionMessage {
             lastActionMessage = describe(event)
@@ -914,6 +943,7 @@ final class AppModel {
                 if !self.codebuddyHooksInstalled { self.installCodebuddyHooks() }
                 if !self.openCodePluginInstalled { self.installOpenCodePlugin() }
                 if !self.cursorHooksInstalled { self.installCursorHooks() }
+                if !self.geminiHooksInstalled { self.installGeminiHooks() }
                 if !self.claudeUsageInstalled { self.installClaudeUsageBridge() }
 
                 // Run health checks after install to detect stale paths, conflicts, etc.
@@ -1063,6 +1093,12 @@ final class AppModel {
             }
 
             return payload.cursorMetadata.lastAssistantMessage ?? "Cursor session metadata updated."
+        case let .geminiSessionMetadataUpdated(payload):
+            if let currentTool = payload.geminiMetadata.currentTool {
+                return "Gemini is running \(currentTool)."
+            }
+
+            return payload.geminiMetadata.lastAssistantMessage ?? "Gemini session metadata updated."
         case let .actionableStateResolved(payload):
             return "Actionable state resolved for session \(payload.sessionID)."
         }

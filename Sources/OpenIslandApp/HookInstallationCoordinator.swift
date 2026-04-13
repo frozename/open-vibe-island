@@ -13,6 +13,7 @@ final class HookInstallationCoordinator {
     var codebuddyHookStatus: ClaudeHookInstallationStatus?
     var openCodePluginStatus: OpenCodePluginInstallationStatus?
     var cursorHookStatus: CursorHookInstallationStatus?
+    var geminiHookStatus: GeminiHookInstallationStatus?
     var claudeStatusLineStatus: ClaudeStatusLineInstallationStatus?
     var claudeUsageSnapshot: ClaudeUsageSnapshot?
     var codexUsageSnapshot: CodexUsageSnapshot?
@@ -25,6 +26,7 @@ final class HookInstallationCoordinator {
     var isCodebuddyHookSetupBusy = false
     var isOpenCodeSetupBusy = false
     var isCursorHookSetupBusy = false
+    var isGeminiHookSetupBusy = false
     var isClaudeUsageSetupBusy = false
 
     @ObservationIgnored
@@ -65,6 +67,9 @@ final class HookInstallationCoordinator {
 
     @ObservationIgnored
     private let cursorHookInstallationManager = CursorHookInstallationManager()
+
+    @ObservationIgnored
+    private let geminiHookInstallationManager = GeminiHookInstallationManager()
 
     @ObservationIgnored
     private let claudeStatusLineInstallationManager = ClaudeStatusLineInstallationManager()
@@ -114,6 +119,10 @@ final class HookInstallationCoordinator {
 
     var cursorHooksInstalled: Bool {
         cursorHookStatus?.managedHooksPresent == true
+    }
+
+    var geminiHooksInstalled: Bool {
+        geminiHookStatus?.managedHooksPresent == true
     }
 
     var claudeUsageInstalled: Bool {
@@ -304,6 +313,34 @@ final class HookInstallationCoordinator {
         return "no managed Cursor hooks"
     }
 
+    var geminiHookStatusTitle: String {
+        if geminiHooksInstalled {
+            return "Gemini hooks installed"
+        }
+
+        if hooksBinaryURL == nil {
+            return "Hook binary not found"
+        }
+
+        return "Gemini hooks not installed"
+    }
+
+    var geminiHookStatusSummary: String {
+        guard geminiHookStatus != nil else {
+            return "Reading ~/.gemini/settings.json."
+        }
+
+        if geminiHooksInstalled {
+            return "managed hooks present"
+        }
+
+        if hooksBinaryURL == nil {
+            return "Build OpenIslandHooks before installing."
+        }
+
+        return "no managed Gemini hooks"
+    }
+
     var codexHookStatusTitle: String {
         if codexHooksInstalled {
             return "Codex hooks installed"
@@ -352,6 +389,7 @@ final class HookInstallationCoordinator {
                     self.refreshCodexHookStatus()
                     self.refreshClaudeHookStatus()
                     self.refreshCursorHookStatus()
+                    self.refreshGeminiHookStatus()
                 }
             } catch {
                 self.onStatusMessage?("Failed to update hooks binary: \(error.localizedDescription)")
@@ -528,6 +566,16 @@ final class HookInstallationCoordinator {
             group.addTask { @MainActor [weak self] in
                 guard let self else { return }
                 do {
+                    let status = try self.geminiHookInstallationManager.status(hooksBinaryURL: self.hooksBinaryURL)
+                    self.geminiHookStatus = status
+                } catch {
+                    self.onStatusMessage?("Failed to read Gemini hook status: \(error.localizedDescription)")
+                }
+            }
+
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return }
+                do {
                     let usageState = try self.readClaudeUsageState(repairManagedBridgeIfNeeded: true)
                     self.claudeStatusLineStatus = usageState.status
                     self.claudeUsageSnapshot = usageState.snapshot
@@ -578,6 +626,19 @@ final class HookInstallationCoordinator {
                 self.cursorHookStatus = status
             } catch {
                 self.onStatusMessage?("Failed to read Cursor hook status: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func refreshGeminiHookStatus() {
+        Task { [weak self] in
+            guard let self else { return }
+
+            do {
+                let status = try self.geminiHookInstallationManager.status(hooksBinaryURL: self.hooksBinaryURL)
+                self.geminiHookStatus = status
+            } catch {
+                self.onStatusMessage?("Failed to read Gemini hook status: \(error.localizedDescription)")
             }
         }
     }
@@ -792,6 +853,23 @@ final class HookInstallationCoordinator {
         }
     }
 
+    func installGeminiHooks() {
+        guard let hooksBinaryURL else {
+            onStatusMessage?("Could not find a local OpenIslandHooks binary. Build the package first.")
+            return
+        }
+
+        updateGeminiHooks(userMessage: "Installing Gemini hooks.") { manager in
+            try manager.install(hooksBinaryURL: hooksBinaryURL)
+        }
+    }
+
+    func uninstallGeminiHooks() {
+        updateGeminiHooks(userMessage: "Removing Gemini hooks.") { manager in
+            try manager.uninstall()
+        }
+    }
+
     func installClaudeUsageBridge() {
         updateClaudeUsageBridge(userMessage: "Installing Claude usage bridge.") { manager in
             try manager.install()
@@ -931,6 +1009,32 @@ final class HookInstallationCoordinator {
                 }
             } catch {
                 self.onStatusMessage?("Cursor hook update failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func updateGeminiHooks(
+        userMessage: String,
+        operation: @escaping (GeminiHookInstallationManager) throws -> GeminiHookInstallationStatus
+    ) {
+        isGeminiHookSetupBusy = true
+        onStatusMessage?(userMessage)
+
+        Task { [weak self] in
+            guard let self else { return }
+
+            defer { self.isGeminiHookSetupBusy = false }
+
+            do {
+                let status = try operation(self.geminiHookInstallationManager)
+                self.geminiHookStatus = status
+                if status.managedHooksPresent {
+                    self.onStatusMessage?("Gemini hooks are installed and ready.")
+                } else {
+                    self.onStatusMessage?("Gemini hooks are not installed.")
+                }
+            } catch {
+                self.onStatusMessage?("Gemini hook update failed: \(error.localizedDescription)")
             }
         }
     }
