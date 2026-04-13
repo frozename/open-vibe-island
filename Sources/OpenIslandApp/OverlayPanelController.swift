@@ -13,7 +13,6 @@ final class OverlayPanelController {
     private static let openedContentBottomPadding: CGFloat = 0
     /// Must match `IslandPanelView.maxSessionListHeight` — the AutoHeightScrollView cap.
     private static let maxSessionListHeight: CGFloat = 560
-    private static let maxVisibleSessionRows: Int = 6
     private static let openedRowSpacing: CGFloat = 6
     private static let groupHeaderHeight: CGFloat = 42
     // Content padding (8) + scroll padding (4) + view chrome: outerBottomPadding (14) + header-content gap (12)
@@ -590,10 +589,6 @@ final class OverlayPanelController {
         // Use a smaller minimum to avoid blank space when content is short
         let minHeight: CGFloat = Self.completionCardChromeHeight + 20
         return min(Self.completionCardMaxHeight, max(minHeight, estimatedHeight))
-    }
-
-    private func openedVisibleSessions(sessions: [AgentSession]) -> [AgentSession] {
-        sessions
     }
 
     // MARK: - Event reposting
