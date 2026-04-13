@@ -61,9 +61,9 @@ let package = Package(
                 .product(name: "Testing", package: "swift-testing")
             ]
         ),
-//        .testTarget(
-//            name: "OpenIslandAppTests",
-//            dependencies: ["OpenIslandApp", "OpenIslandCore"]
-//        ),
+        .testTarget(
+            name: "OpenIslandAppTests",
+            dependencies: ["OpenIslandApp", "OpenIslandCore"]
+        ),
     ]
 )
