@@ -814,6 +814,18 @@ final class AppModel {
         )
     }
 
+    @MainActor
+    func dismissAdvisoryCard(for sessionID: String) {
+        dismissNotificationSurfaceIfPresent(for: sessionID)
+        let event = AgentEvent.actionableStateResolved(
+            ActionableStateResolved(
+                sessionID: sessionID,
+                summary: "Approval was handled outside Open Island.",
+                timestamp: .now
+            )
+        )
+        applyTrackedEvent(event, ingress: .bridge)
+    }
 
     private func send(_ command: BridgeCommand, userMessage: String) {
         lastActionMessage = userMessage

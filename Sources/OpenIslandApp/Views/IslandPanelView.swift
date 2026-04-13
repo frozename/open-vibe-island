@@ -526,6 +526,7 @@ struct IslandPanelView: View {
                     lang: model.lang,
                     onApprove: { model.approvePermission(for: session.id, action: $0) },
                     onAnswer: { model.answerQuestion(for: session.id, answer: $0) },
+                    onDismissAdvisoryCard: { model.dismissAdvisoryCard(for: session.id) },
                     onJump: { model.jumpToSession(session) }
                 )
 
@@ -556,6 +557,7 @@ struct IslandPanelView: View {
                             lang: model.lang,
                             onApprove: { id, action in model.approvePermission(for: id, action: action) },
                             onAnswer: { id, answer in model.answerQuestion(for: id, answer: answer) },
+                            onDismissAdvisoryCard: { id in model.dismissAdvisoryCard(for: id) },
                             onJump: { model.jumpToSession($0) }
                         )
                     case .single(let session):
@@ -569,6 +571,7 @@ struct IslandPanelView: View {
                             lang: model.lang,
                             onApprove: { model.approvePermission(for: session.id, action: $0) },
                             onAnswer: { model.answerQuestion(for: session.id, answer: $0) },
+                            onDismissAdvisoryCard: { model.dismissAdvisoryCard(for: session.id) },
                             onJump: { model.jumpToSession(session) }
                         )
                     }
@@ -992,6 +995,7 @@ private struct ProjectGroupView: View {
     var lang: LanguageManager = .shared
     var onApprove: ((String, ApprovalAction) -> Void)?
     var onAnswer: ((String, QuestionPromptResponse) -> Void)?
+    var onDismissAdvisoryCard: ((String) -> Void)?
     let onJump: (AgentSession) -> Void
 
     var body: some View {
@@ -1027,6 +1031,7 @@ private struct ProjectGroupView: View {
                         lang: lang,
                         onApprove: { onApprove?(session.id, $0) },
                         onAnswer: { onAnswer?(session.id, $0) },
+                        onDismissAdvisoryCard: { onDismissAdvisoryCard?(session.id) },
                         onJump: { onJump(session) },
                         isGrouped: true
                     )
@@ -1080,6 +1085,7 @@ private struct IslandSessionRow: View {
     var lang: LanguageManager = .shared
     var onApprove: ((ApprovalAction) -> Void)?
     var onAnswer: ((QuestionPromptResponse) -> Void)?
+    var onDismissAdvisoryCard: (() -> Void)?
     let onJump: () -> Void
     var isGrouped: Bool = false
 
@@ -1325,14 +1331,14 @@ private struct IslandSessionRow: View {
             )
 
             HStack(spacing: 8) {
-                if session.permissionRequest?.primaryActionTitle == "Go to Terminal" {
+                if session.permissionRequest?.isAdvisory == true {
                     // Advisory card for Gemini — approval happens in the terminal.
                     Button(session.permissionRequest?.secondaryActionTitle ?? "Dismiss") {
-                        onApprove?(.deny)
+                        onDismissAdvisoryCard?()
                     }
                     .buttonStyle(IslandWideButtonStyle(kind: .secondary))
                     Button("Go to Terminal") {
-                        onApprove?(.allowOnce)
+                        onDismissAdvisoryCard?()
                         onJump()
                     }
                     .buttonStyle(IslandWideButtonStyle(kind: .warning))
