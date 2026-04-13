@@ -90,7 +90,7 @@ struct OpenIslandHooksCLI {
                     FileHandle.standardOutput.write(Data("\n".utf8))
                 }
             case .gemini:
-                let payload = try JSONDecoder()
+                let payload = try decoder
                     .decode(GeminiHookPayload.self, from: input)
                     .withRuntimeContext(environment: ProcessInfo.processInfo.environment)
 
