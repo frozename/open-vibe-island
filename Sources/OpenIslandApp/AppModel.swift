@@ -820,7 +820,7 @@ final class AppModel {
         let event = AgentEvent.actionableStateResolved(
             ActionableStateResolved(
                 sessionID: sessionID,
-                summary: "Approval was handled outside Open Island.",
+                summary: "Waiting for approval in terminal.",
                 timestamp: .now
             )
         )

@@ -53,10 +53,10 @@ struct GeminiHooksTests {
 
     @Test
     func jsonValueToStringEscaping() {
-        let obj: [String: JSONValue] = [
+        let obj: [String: GeminiHookJSONValue] = [
             "key with \"quotes\"": .string("line1\nline2\ttab\\backslashes")
         ]
-        let value = JSONValue.object(obj)
+        let value = GeminiHookJSONValue.object(obj)
         let string = value.toString()
         
         // Keys should be escaped, values should be escaped

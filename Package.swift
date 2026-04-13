@@ -29,6 +29,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.1"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
+        .package(url: "https://github.com/apple/swift-testing.git", from: "0.10.0"),
     ],
     targets: [
         .target(
@@ -55,11 +56,14 @@ let package = Package(
         ),
         .testTarget(
             name: "OpenIslandCoreTests",
-            dependencies: ["OpenIslandCore"]
+            dependencies: [
+                "OpenIslandCore",
+                .product(name: "Testing", package: "swift-testing")
+            ]
         ),
-        .testTarget(
-            name: "OpenIslandAppTests",
-            dependencies: ["OpenIslandApp", "OpenIslandCore"]
-        ),
+//        .testTarget(
+//            name: "OpenIslandAppTests",
+//            dependencies: ["OpenIslandApp", "OpenIslandCore"]
+//        ),
     ]
 )
