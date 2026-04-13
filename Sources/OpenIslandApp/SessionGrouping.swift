@@ -19,11 +19,11 @@ struct SessionGroup: Identifiable {
     let id: String
     let workspaceName: String
     let sessions: [AgentSession]
-    
+
     var hasAttention: Bool {
         sessions.contains { $0.phase.requiresAttention }
     }
-    
+
     var attentionCount: Int {
         sessions.filter { $0.phase.requiresAttention }.count
     }
@@ -45,7 +45,7 @@ func groupIslandSessions(_ sessions: [AgentSession]) -> [IslandListItem] {
     var items: [IslandListItem] = []
     for key in order {
         guard let groupSessions = groups[key] else { continue }
-        
+
         if groupSessions.count == 1, let session = groupSessions.first {
             items.append(.single(session))
         } else if groupSessions.count >= 2 {

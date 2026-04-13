@@ -160,7 +160,7 @@ extension AgentSession {
 
         return "\(headline) · \(prompt)"
     }
-    
+
     var groupedHeadlineText: String {
         let agent = tool.displayName
         if let activity = spotlightRunningActivityText {

@@ -124,7 +124,7 @@ public struct GeminiHookPayload: Equatable, Codable, Sendable {
         self.transcriptPath = try container.decode(String.self, forKey: .transcriptPath)
         self.cwd = try container.decode(String.self, forKey: .cwd)
         self.hookEventName = try container.decode(GeminiHookEventName.self, forKey: .hookEventName)
-        
+
         // Handle ISO8601 or similar timestamp formats if needed, otherwise default decode
         self.timestamp = try container.decode(Date.self, forKey: .timestamp)
 
@@ -134,7 +134,7 @@ public struct GeminiHookPayload: Equatable, Codable, Sendable {
         self.promptResponse = try? container.decodeIfPresent(String.self, forKey: .promptResponse)
         self.stopHookActive = try? container.decodeIfPresent(Bool.self, forKey: .stopHookActive)
         self.toolName = try? container.decodeIfPresent(String.self, forKey: .toolName)
-        
+
         // tool_input arrives as a JSON object, but we want it as a String preview.
         // It might arrive as a String if it went through the bridge.
         if let str = try? container.decodeIfPresent(String.self, forKey: .toolInput) {
@@ -155,7 +155,7 @@ public struct GeminiHookPayload: Equatable, Codable, Sendable {
 
         self.originalRequestName = try? container.decodeIfPresent(String.self, forKey: .originalRequestName)
         self.trigger = try? container.decodeIfPresent(String.self, forKey: .trigger)
-        
+
         if let str = try? container.decodeIfPresent(String.self, forKey: .mcpContext) {
             self.mcpContext = str
         } else if let json = try? container.decodeIfPresent(GeminiHookJSONValue.self, forKey: .mcpContext) {

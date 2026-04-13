@@ -76,11 +76,11 @@ public enum GeminiHookInstaller {
                 group["hooks"] = hooks
                 return group
             }
-            
+
             // Add our hook command wrapped in a group
             let timeout = (event == "BeforeTool") ? 86_400_000 : nil  // Gemini CLI timeout is in milliseconds
             groups.append(managedGroup(matcher: "*", timeout: timeout, hookCommand: hookCommand))
-            
+
             hooksObject[event] = groups
         }
 

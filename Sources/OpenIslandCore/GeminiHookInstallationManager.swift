@@ -48,7 +48,7 @@ public final class GeminiHookInstallationManager: @unchecked Sendable {
         let settingsData = try? Data(contentsOf: settingsURL)
         let manifest = loadManifest(at: manifestURL)
         let managedCommand = manifest?.hookCommand ?? resolvedBinaryURL.map { GeminiHookInstaller.hookCommand(for: $0.path) }
-        
+
         let mutation = try GeminiHookInstaller.uninstallSettingsJSON(
             existingData: settingsData,
             managedCommand: managedCommand
@@ -71,7 +71,7 @@ public final class GeminiHookInstallationManager: @unchecked Sendable {
         let settingsURL = geminiDirectory.appendingPathComponent("settings.json")
         let manifestURL = geminiDirectory.appendingPathComponent(GeminiHookInstallerManifest.fileName)
         let existingSettings = try? Data(contentsOf: settingsURL)
-        
+
         let installedBinaryURL = try ManagedHooksBinary.install(
             from: hooksBinaryURL,
             to: managedHooksBinaryURL,
@@ -106,7 +106,7 @@ public final class GeminiHookInstallationManager: @unchecked Sendable {
         let manifestURL = geminiDirectory.appendingPathComponent(GeminiHookInstallerManifest.fileName)
         let manifest = loadManifest(at: manifestURL)
         let existingSettings = try? Data(contentsOf: settingsURL)
-        
+
         let mutation = try GeminiHookInstaller.uninstallSettingsJSON(
             existingData: existingSettings,
             managedCommand: manifest?.hookCommand

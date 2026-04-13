@@ -17,11 +17,11 @@ struct SessionGroupingTests {
             id: "3", title: "Task C", tool: .cursor, phase: .running, summary: "Run", updatedAt: .now,
             jumpTarget: JumpTarget(terminalApp: "Terminal", workspaceName: "ProjectY", paneTitle: "c")
         )
-        
+
         let items = groupIslandSessions([session1, session2, session3])
-        
+
         #expect(items.count == 2)
-        
+
         guard case let .group(group) = items[0] else {
             Issue.record("Expected group for ProjectX")
             return
@@ -31,7 +31,7 @@ struct SessionGroupingTests {
         #expect(group.sessions.count == 2)
         #expect(group.sessions[0].id == "1")
         #expect(group.sessions[1].id == "2")
-        
+
         guard case let .single(session) = items[1] else {
             Issue.record("Expected single for ProjectY")
             return
