@@ -84,7 +84,7 @@ struct GeminiHooksTests {
         let beforeToolHooks = beforeToolGroups[0]["hooks"] as! [[String: Any]]
         #expect(beforeToolHooks[0]["command"] as? String == hookCommand)
         #expect(beforeToolHooks[0]["type"] as? String == "command")
-        #expect(beforeToolHooks[0]["timeout"] as? Int == 86400)
+        #expect(beforeToolHooks[0]["timeout"] as? Int == 86_400_000)
     }
 
     @Test
