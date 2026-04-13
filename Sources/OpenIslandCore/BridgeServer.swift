@@ -2554,7 +2554,8 @@ public final class BridgeServer: @unchecked Sendable {
                                 affectedPath: payload.permissionAffectedPath,
                                 primaryActionTitle: "Go to Terminal",
                                 secondaryActionTitle: "Dismiss",
-                                toolName: payload.toolName
+                                toolName: payload.toolName,
+                                isAdvisory: true
                             ),
                             timestamp: .now
                         )
