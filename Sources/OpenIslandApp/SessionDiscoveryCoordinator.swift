@@ -58,16 +58,16 @@ final class SessionDiscoveryCoordinator {
     private let claudeTranscriptDiscovery = ClaudeTranscriptDiscovery()
 
     @ObservationIgnored
-    private var codexSessionPersistenceTask: Task<Void, Error>?
+    private var codexSessionPersistenceTask: Task<Void, Never>?
 
     @ObservationIgnored
-    private var claudeSessionPersistenceTask: Task<Void, Error>?
+    private var claudeSessionPersistenceTask: Task<Void, Never>?
 
     @ObservationIgnored
-    private var cursorSessionPersistenceTask: Task<Void, Error>?
+    private var cursorSessionPersistenceTask: Task<Void, Never>?
 
     @ObservationIgnored
-    private var geminiSessionPersistenceTask: Task<Void, Error>?
+    private var geminiSessionPersistenceTask: Task<Void, Never>?
 
     private var state: SessionState {
         get { stateAccessor?() ?? SessionState() }
@@ -400,7 +400,7 @@ final class SessionDiscoveryCoordinator {
         let registry = cursorSessionRegistry
 
         cursorSessionPersistenceTask = Task.detached(priority: .utility) {
-            try await Task.sleep(for: .milliseconds(250))
+            try? await Task.sleep(for: .milliseconds(250))
             try? registry.save(records)
         }
     }
@@ -443,7 +443,7 @@ final class SessionDiscoveryCoordinator {
         let registry = geminiSessionRegistry
 
         geminiSessionPersistenceTask = Task.detached(priority: .utility) {
-            try await Task.sleep(for: .milliseconds(250))
+            try? await Task.sleep(for: .milliseconds(250))
             try? registry.save(records)
         }
     }
