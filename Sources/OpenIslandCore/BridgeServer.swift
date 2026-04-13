@@ -2540,8 +2540,8 @@ public final class BridgeServer: @unchecked Sendable {
 
             if payload.notificationType == "ToolPermission" {
                 clearStaleGeminiInteractionIfNeeded(for: payload.sessionID)
-                // Gemini is showing "Action Required" in the terminal.
-                // Pop an advisory card so the user knows to go approve.
+                // Gemini is about to show "Action Required" in the terminal.
+                // Pop an advisory card so the user knows to go approve there.
                 let toolDetail = payload.toolPermissionDetail
                 self.emit(
                     .permissionRequested(
@@ -2553,16 +2553,20 @@ public final class BridgeServer: @unchecked Sendable {
                                     ?? "Gemini needs approval in your terminal.",
                                 affectedPath: payload.permissionAffectedPath,
                                 primaryActionTitle: "Go to Terminal",
-                                secondaryActionTitle: "Dismiss"
+                                secondaryActionTitle: "Dismiss",
+                                toolName: payload.toolName
                             ),
                             timestamp: .now
                         )
                     )
                 )
 
-                // Cleared by afterTool/afterAgent via clearStaleGeminiInteractionIfNeeded.
+                // Use a sentinel UUID — NOT the real clientID — so that when
+                // the hook CLI exits and removeClient fires, it won't find
+                // this entry and won't clear the card. The card persists until
+                // afterTool/afterAgent fires clearStaleGeminiInteractionIfNeeded.
                 pendingGeminiInteractions[payload.sessionID] = PendingGeminiInteraction(
-                    clientID: clientID
+                    clientID: UUID()
                 )
             } else {
                 self.emit(

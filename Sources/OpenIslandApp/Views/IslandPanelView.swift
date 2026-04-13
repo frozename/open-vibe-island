@@ -1325,21 +1325,34 @@ private struct IslandSessionRow: View {
             )
 
             HStack(spacing: 8) {
-                Button("No") { onApprove?(.deny) }
-                    .buttonStyle(IslandWideButtonStyle(kind: .secondary))
-                Button("Yes") { onApprove?(.allowOnce) }
-                    .buttonStyle(IslandWideButtonStyle(kind: .warning))
-                if let toolName = session.permissionRequest?.toolName {
-                    Button("Always Allow (\(toolName))") {
-                        let rule = ClaudePermissionRuleValue(toolName: toolName)
-                        let update = ClaudePermissionUpdate.addRules(
-                            destination: .session,
-                            rules: [rule],
-                            behavior: .allow
-                        )
-                        onApprove?(.allowWithUpdates([update]))
+                if session.permissionRequest?.primaryActionTitle == "Go to Terminal" {
+                    // Advisory card for Gemini — approval happens in the terminal.
+                    Button(session.permissionRequest?.secondaryActionTitle ?? "Dismiss") {
+                        onApprove?(.deny)
                     }
-                    .buttonStyle(IslandWideButtonStyle(kind: .danger))
+                    .buttonStyle(IslandWideButtonStyle(kind: .secondary))
+                    Button("Go to Terminal") {
+                        onApprove?(.allowOnce)
+                        onJump()
+                    }
+                    .buttonStyle(IslandWideButtonStyle(kind: .warning))
+                } else {
+                    Button("No") { onApprove?(.deny) }
+                        .buttonStyle(IslandWideButtonStyle(kind: .secondary))
+                    Button("Yes") { onApprove?(.allowOnce) }
+                        .buttonStyle(IslandWideButtonStyle(kind: .warning))
+                    if let toolName = session.permissionRequest?.toolName {
+                        Button("Always Allow (\(toolName))") {
+                            let rule = ClaudePermissionRuleValue(toolName: toolName)
+                            let update = ClaudePermissionUpdate.addRules(
+                                destination: .session,
+                                rules: [rule],
+                                behavior: .allow
+                            )
+                            onApprove?(.allowWithUpdates([update]))
+                        }
+                        .buttonStyle(IslandWideButtonStyle(kind: .danger))
+                    }
                 }
             }
         }
