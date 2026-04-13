@@ -146,7 +146,7 @@ public struct PermissionRequest: Equatable, Identifiable, Codable, Sendable {
     public var toolName: String?
     public var toolUseID: String?
     public var suggestedUpdates: [ClaudePermissionUpdate]
-    public var isAdvisory: Bool
+    public var isAdvisory: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -158,7 +158,7 @@ public struct PermissionRequest: Equatable, Identifiable, Codable, Sendable {
         toolName: String? = nil,
         toolUseID: String? = nil,
         suggestedUpdates: [ClaudePermissionUpdate] = [],
-        isAdvisory: Bool = false
+        isAdvisory: Bool? = false
     ) {
         self.id = id
         self.title = title
