@@ -2569,6 +2569,16 @@ public final class BridgeServer: @unchecked Sendable {
                 pendingGeminiInteractions[payload.sessionID] = PendingGeminiInteraction(
                     clientID: UUID()
                 )
+
+                // Safety timeout: automatically clear the stuck card after 5 minutes
+                // if it hasn't been resolved by afterTool/afterAgent/sessionEnd.
+                let sessionID = payload.sessionID
+                queue.asyncAfter(deadline: .now() + 300.0) { [weak self] in
+                    guard let self else { return }
+                    if self.pendingGeminiInteractions[sessionID] != nil {
+                        self.clearStaleGeminiInteractionIfNeeded(for: sessionID)
+                    }
+                }
             } else {
                 self.emit(
                     .activityUpdated(
